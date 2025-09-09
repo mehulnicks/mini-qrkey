@@ -921,6 +921,22 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
   final TextEditingController _searchController = TextEditingController();
   
   String _searchQuery = '';
+  double _orderDiscount = 0.0;
+  double _deliveryCharge = 0.0;
+  double _packagingCharge = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize with default charges from settings
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final settings = ref.read(settingsProvider);
+      setState(() {
+        _deliveryCharge = settings.defaultDeliveryCharge;
+        _packagingCharge = settings.defaultPackagingCharge;
+      });
+    });
+  }
 
   @override
   void dispose() {
@@ -944,9 +960,14 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
              item.category.toLowerCase().contains(_searchQuery.toLowerCase());
     }).toList();
 
+    final rawSubtotal = currentOrder.fold(0.0, (sum, item) => sum + item.subtotal);
+    final itemDiscounts = currentOrder.fold(0.0, (sum, item) => sum + item.discountAmount);
     final subtotal = currentOrder.fold(0.0, (sum, item) => sum + item.total);
-    final tax = subtotal * settings.taxRate;
-    final total = subtotal + tax;
+    final charges = _deliveryCharge + _packagingCharge;
+    final discountedSubtotal = subtotal - _orderDiscount;
+    final taxableAmount = discountedSubtotal + charges;
+    final tax = taxableAmount * settings.taxRate;
+    final total = taxableAmount + tax;
 
     return Scaffold(
       appBar: AppBar(
@@ -1405,9 +1426,14 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
 
     if (currentOrder.isEmpty) return;
 
+    final rawSubtotal = currentOrder.fold(0.0, (sum, item) => sum + item.subtotal);
+    final itemDiscounts = currentOrder.fold(0.0, (sum, item) => sum + item.discountAmount);
     final subtotal = currentOrder.fold(0.0, (sum, item) => sum + item.total);
-    final tax = subtotal * settings.taxRate;
-    final total = subtotal + tax;
+    final charges = _deliveryCharge + _packagingCharge;
+    final discountedSubtotal = subtotal - _orderDiscount;
+    final taxableAmount = discountedSubtotal + charges;
+    final tax = taxableAmount * settings.taxRate;
+    final total = taxableAmount + tax;
 
     showDialog(
       context: context,
@@ -1481,30 +1507,63 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                           final item = currentOrder[index];
                           return Padding(
                             padding: const EdgeInsets.symmetric(vertical: 4),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        item.menuItem.name,
-                                        style: const TextStyle(fontWeight: FontWeight.w500),
-                                      ),
-                                      Text(
-                                        '${item.orderType.name} • ${formatIndianCurrency(settings.currency, item.unitPrice)} each',
-                                        style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                                      ),
-                                    ],
-                                  ),
+                            child: Card(
+                              margin: const EdgeInsets.symmetric(vertical: 2),
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Column(
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                item.menuItem.name,
+                                                style: const TextStyle(fontWeight: FontWeight.w500),
+                                              ),
+                                              Text(
+                                                '${item.orderType.name} • ${formatIndianCurrency(settings.currency, item.unitPrice)} each',
+                                                style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                                              ),
+                                              if (item.itemDiscount != null && item.itemDiscount! > 0)
+                                                Container(
+                                                  margin: const EdgeInsets.only(top: 4),
+                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.green[100],
+                                                    borderRadius: BorderRadius.circular(12),
+                                                  ),
+                                                  child: Text(
+                                                    'Discount: ${formatIndianCurrency(settings.currency, item.discountAmount)}',
+                                                    style: TextStyle(
+                                                      color: Colors.green[800],
+                                                      fontSize: 11,
+                                                      fontWeight: FontWeight.w500,
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        ),
+                                        Text('${item.quantity}x', style: const TextStyle(fontWeight: FontWeight.w500)),
+                                        const SizedBox(width: 8),
+                                        IconButton(
+                                          icon: const Icon(Icons.local_offer, size: 20, color: Color(0xFFFF9933)),
+                                          onPressed: () => _showItemDiscountDialog(context, ref, index, item),
+                                          tooltip: 'Add Discount',
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          formatIndianCurrency(settings.currency, item.total),
+                                          style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFF9933)),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
                                 ),
-                                Text('${item.quantity}x', style: const TextStyle(fontWeight: FontWeight.w500)),
-                                const SizedBox(width: 16),
-                                Text(
-                                  formatIndianCurrency(settings.currency, item.total),
-                                  style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFF9933)),
-                                ),
-                              ],
+                              ),
                             ),
                           );
                         },
@@ -1516,9 +1575,116 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text('Subtotal:'),
-                        Text(formatIndianCurrency(settings.currency, subtotal)),
+                        Text(formatIndianCurrency(settings.currency, rawSubtotal)),
                       ],
                     ),
+                    
+                    // Item-level discounts
+                    if (itemDiscounts > 0) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Item Discounts:', style: TextStyle(color: Colors.green)),
+                          Text(
+                            '-${formatIndianCurrency(settings.currency, itemDiscounts)}',
+                            style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w500),
+                          ),
+                        ],
+                      ),
+                    ],
+                    
+                    // Order-level discount
+                    if (_orderDiscount > 0) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              const Text('Order Discount:', style: TextStyle(color: Colors.green)),
+                              IconButton(
+                                icon: const Icon(Icons.edit, size: 16, color: Color(0xFFFF9933)),
+                                onPressed: () => _showOrderDiscountDialog(context, ref),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                              ),
+                            ],
+                          ),
+                          Text(
+                            '-${formatIndianCurrency(settings.currency, _orderDiscount)}',
+                            style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w500),
+                          ),
+                        ],
+                      ),
+                    ] else ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Order Discount:'),
+                          TextButton.icon(
+                            onPressed: () => _showOrderDiscountDialog(context, ref),
+                            icon: const Icon(Icons.local_offer, size: 16),
+                            label: const Text('Add Discount'),
+                            style: TextButton.styleFrom(
+                              foregroundColor: const Color(0xFFFF9933),
+                              padding: const EdgeInsets.symmetric(horizontal: 8),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    
+                    // Delivery/Packaging charges for delivery orders
+                    if (orderType == OrderType.delivery) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              const Text('Delivery Charge:'),
+                              IconButton(
+                                icon: const Icon(Icons.edit, size: 16, color: Color(0xFFFF9933)),
+                                onPressed: () => _showChargesDialog(context, ref),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                              ),
+                            ],
+                          ),
+                          Text(formatIndianCurrency(settings.currency, _deliveryCharge)),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Packaging Charge:'),
+                          Text(formatIndianCurrency(settings.currency, _packagingCharge)),
+                        ],
+                      ),
+                    ] else if (orderType == OrderType.takeaway) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              const Text('Packaging Charge:'),
+                              IconButton(
+                                icon: const Icon(Icons.edit, size: 16, color: Color(0xFFFF9933)),
+                                onPressed: () => _showChargesDialog(context, ref),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                              ),
+                            ],
+                          ),
+                          Text(formatIndianCurrency(settings.currency, _packagingCharge)),
+                        ],
+                      ),
+                    ],
+                    
                     const SizedBox(height: 4),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1756,6 +1922,11 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     final orderId = DateTime.now().millisecondsSinceEpoch.toString();
     
     // Create and add the order to the orders list
+    final orderCharges = OrderCharges(
+      deliveryCharge: orderType == OrderType.delivery ? _deliveryCharge : 0.0,
+      packagingCharge: (orderType == OrderType.takeaway || orderType == OrderType.delivery) ? _packagingCharge : 0.0,
+    );
+
     final newOrder = Order(
       id: orderId,
       items: currentOrder,
@@ -1764,6 +1935,8 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
       status: OrderStatus.pending,
       notes: _notesController.text.isEmpty ? null : _notesController.text,
       customer: customerInfo,
+      orderDiscount: _orderDiscount > 0 ? _orderDiscount : null,
+      charges: orderCharges,
       kotPrinted: settings.kotEnabled,
     );
     
@@ -1775,6 +1948,13 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     _customerNameController.clear();
     _customerPhoneController.clear();
     _notesController.clear();
+    
+    // Reset discount and charges
+    setState(() {
+      _orderDiscount = 0.0;
+      _deliveryCharge = settings.defaultDeliveryCharge;
+      _packagingCharge = settings.defaultPackagingCharge;
+    });
     
     // Print KOT if enabled
     if (settings.kotEnabled) {
@@ -2000,6 +2180,300 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
 
   String _formatKOTTimestamp(DateTime dateTime) {
     return '${dateTime.day.toString().padLeft(2, '0')}/${dateTime.month.toString().padLeft(2, '0')}/${dateTime.year} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+  }
+
+  // Discount and Charges Dialog Methods
+  void _showItemDiscountDialog(BuildContext context, WidgetRef ref, int itemIndex, OrderItem item) {
+    final discountController = TextEditingController(text: item.itemDiscount?.toString() ?? '');
+    bool isPercentage = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Row(
+            children: [
+              const Icon(Icons.local_offer, color: Color(0xFFFF9933)),
+              const SizedBox(width: 8),
+              Text('Item Discount - ${item.menuItem.name}'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: RadioListTile<bool>(
+                      title: const Text('Flat Amount'),
+                      value: false,
+                      groupValue: isPercentage,
+                      onChanged: (value) => setState(() => isPercentage = value!),
+                      activeColor: const Color(0xFFFF9933),
+                    ),
+                  ),
+                  Expanded(
+                    child: RadioListTile<bool>(
+                      title: const Text('Percentage'),
+                      value: true,
+                      groupValue: isPercentage,
+                      onChanged: (value) => setState(() => isPercentage = value!),
+                      activeColor: const Color(0xFFFF9933),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: discountController,
+                decoration: InputDecoration(
+                  labelText: isPercentage ? 'Discount Percentage' : 'Discount Amount',
+                  border: const OutlineInputBorder(),
+                  prefixText: isPercentage ? '' : '₹ ',
+                  suffixText: isPercentage ? '%' : '',
+                ),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Item price: ₹${item.unitPrice.toStringAsFixed(2)} x ${item.quantity}',
+                style: TextStyle(color: Colors.grey[600], fontSize: 12),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            if (item.itemDiscount != null && item.itemDiscount! > 0)
+              TextButton(
+                onPressed: () {
+                  final currentOrder = ref.read(currentOrderProvider);
+                  final updatedItem = item.copyWith(itemDiscount: 0.0);
+                  final updatedOrder = List<OrderItem>.from(currentOrder);
+                  updatedOrder[itemIndex] = updatedItem;
+                  ref.read(currentOrderProvider.notifier).state = updatedOrder;
+                  Navigator.pop(context);
+                },
+                child: const Text('Remove Discount', style: TextStyle(color: Colors.red)),
+              ),
+            ElevatedButton(
+              onPressed: () {
+                final discountInput = double.tryParse(discountController.text) ?? 0;
+                if (discountInput >= 0) {
+                  final currentOrder = ref.read(currentOrderProvider);
+                  double discountAmount;
+                  
+                  if (isPercentage) {
+                    if (discountInput > 100) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Percentage cannot exceed 100%')),
+                      );
+                      return;
+                    }
+                    discountAmount = (item.unitPrice * discountInput / 100);
+                  } else {
+                    if (discountInput > item.unitPrice) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Discount cannot exceed item price')),
+                      );
+                      return;
+                    }
+                    discountAmount = discountInput;
+                  }
+                  
+                  final updatedItem = item.copyWith(itemDiscount: discountAmount);
+                  final updatedOrder = List<OrderItem>.from(currentOrder);
+                  updatedOrder[itemIndex] = updatedItem;
+                  ref.read(currentOrderProvider.notifier).state = updatedOrder;
+                  Navigator.pop(context);
+                }
+              },
+              child: const Text('Apply Discount'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showOrderDiscountDialog(BuildContext context, WidgetRef ref) {
+    final discountController = TextEditingController(text: _orderDiscount.toString());
+    bool isPercentage = false;
+    final currentOrder = ref.read(currentOrderProvider);
+    final rawSubtotal = currentOrder.fold(0.0, (sum, item) => sum + item.subtotal);
+    final itemDiscounts = currentOrder.fold(0.0, (sum, item) => sum + item.discountAmount);
+    final subtotal = currentOrder.fold(0.0, (sum, item) => sum + item.total);
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.local_offer, color: Color(0xFFFF9933)),
+              SizedBox(width: 8),
+              Text('Order Discount'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: RadioListTile<bool>(
+                      title: const Text('Flat Amount'),
+                      value: false,
+                      groupValue: isPercentage,
+                      onChanged: (value) => setState(() => isPercentage = value!),
+                      activeColor: const Color(0xFFFF9933),
+                    ),
+                  ),
+                  Expanded(
+                    child: RadioListTile<bool>(
+                      title: const Text('Percentage'),
+                      value: true,
+                      groupValue: isPercentage,
+                      onChanged: (value) => setState(() => isPercentage = value!),
+                      activeColor: const Color(0xFFFF9933),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: discountController,
+                decoration: InputDecoration(
+                  labelText: isPercentage ? 'Discount Percentage' : 'Discount Amount',
+                  border: const OutlineInputBorder(),
+                  prefixText: isPercentage ? '' : '₹ ',
+                  suffixText: isPercentage ? '%' : '',
+                ),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Order subtotal: ₹${subtotal.toStringAsFixed(2)}',
+                style: TextStyle(color: Colors.grey[600], fontSize: 12),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            if (_orderDiscount > 0)
+              TextButton(
+                onPressed: () {
+                  setState(() => _orderDiscount = 0.0);
+                  Navigator.pop(context);
+                },
+                child: const Text('Remove Discount', style: TextStyle(color: Colors.red)),
+              ),
+            ElevatedButton(
+              onPressed: () {
+                final discountInput = double.tryParse(discountController.text) ?? 0;
+                if (discountInput >= 0) {
+                  if (isPercentage) {
+                    if (discountInput > 100) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Percentage cannot exceed 100%')),
+                      );
+                      return;
+                    }
+                    setState(() => _orderDiscount = subtotal * discountInput / 100);
+                  } else {
+                    if (discountInput > subtotal) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Discount cannot exceed order subtotal')),
+                      );
+                      return;
+                    }
+                    setState(() => _orderDiscount = discountInput);
+                  }
+                  Navigator.pop(context);
+                }
+              },
+              child: const Text('Apply Discount'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showChargesDialog(BuildContext context, WidgetRef ref) {
+    final deliveryController = TextEditingController(text: _deliveryCharge.toString());
+    final packagingController = TextEditingController(text: _packagingCharge.toString());
+    final settings = ref.read(settingsProvider);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.local_shipping, color: Color(0xFFFF9933)),
+            SizedBox(width: 8),
+            Text('Delivery & Packaging Charges'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: deliveryController,
+              decoration: const InputDecoration(
+                labelText: 'Delivery Charge',
+                border: OutlineInputBorder(),
+                prefixText: '₹ ',
+              ),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: packagingController,
+              decoration: const InputDecoration(
+                labelText: 'Packaging Charge',
+                border: OutlineInputBorder(),
+                prefixText: '₹ ',
+              ),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                TextButton(
+                  onPressed: () {
+                    deliveryController.text = settings.defaultDeliveryCharge.toString();
+                    packagingController.text = settings.defaultPackagingCharge.toString();
+                  },
+                  child: const Text('Use Default Values'),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              setState(() {
+                _deliveryCharge = double.tryParse(deliveryController.text) ?? 0.0;
+                _packagingCharge = double.tryParse(packagingController.text) ?? 0.0;
+              });
+              Navigator.pop(context);
+            },
+            child: const Text('Apply Charges'),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -2303,7 +2777,9 @@ class OrderHistoryScreen extends ConsumerWidget {
                     ),
                   ],
                 ),
-                if (isActive) _buildActionButtons(context, ref, order),
+                isActive 
+                  ? _buildActionButtons(context, ref, order)
+                  : _buildCompletedOrderActions(context, order),
               ],
             ),
           ],
@@ -2405,6 +2881,12 @@ class OrderHistoryScreen extends ConsumerWidget {
               case 'view':
                 _showOrderDetails(context, order);
                 break;
+              case 'print':
+                _printOrderBill(context, order);
+                break;
+              case 'split':
+                _splitOrderBill(context, order);
+                break;
               case 'cancel':
                 if (order.status != OrderStatus.completed) {
                   _showCancelOrderDialog(context, ref, order);
@@ -2423,6 +2905,26 @@ class OrderHistoryScreen extends ConsumerWidget {
                 ],
               ),
             ),
+            PopupMenuItem(
+              value: 'print',
+              child: Row(
+                children: [
+                  Icon(Icons.print, size: 16, color: Color(0xFFFF9933)),
+                  SizedBox(width: 8),
+                  Text('Print Bill', style: TextStyle(color: Color(0xFFFF9933))),
+                ],
+              ),
+            ),
+            PopupMenuItem(
+              value: 'split',
+              child: Row(
+                children: [
+                  Icon(Icons.call_split, size: 16, color: Color(0xFFFF9933)),
+                  SizedBox(width: 8),
+                  Text('Split Bill', style: TextStyle(color: Color(0xFFFF9933))),
+                ],
+              ),
+            ),
             if (order.status != OrderStatus.completed && order.status != OrderStatus.cancelled)
               PopupMenuItem(
                 value: 'cancel',
@@ -2438,6 +2940,44 @@ class OrderHistoryScreen extends ConsumerWidget {
           child: const Icon(Icons.more_vert, size: 20),
         ),
       ],
+    );
+  }
+
+  Widget _buildCompletedOrderActions(BuildContext context, Order order) {
+    return PopupMenuButton<String>(
+      onSelected: (value) {
+        switch (value) {
+          case 'view':
+            _showOrderDetails(context, order);
+            break;
+          case 'print':
+            _printOrderBill(context, order);
+            break;
+        }
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem(
+          value: 'view',
+          child: Row(
+            children: [
+              Icon(Icons.visibility, size: 16),
+              SizedBox(width: 8),
+              Text('View Details'),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: 'print',
+          child: Row(
+            children: [
+              Icon(Icons.print, size: 16, color: Color(0xFFFF9933)),
+              SizedBox(width: 8),
+              Text('Print Bill', style: TextStyle(color: Color(0xFFFF9933))),
+            ],
+          ),
+        ),
+      ],
+      child: const Icon(Icons.more_vert, size: 20),
     );
   }
 
@@ -2514,6 +3054,325 @@ class OrderHistoryScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  void _printOrderBill(BuildContext context, Order order) {
+    final settings = AppSettings(
+      currency: 'INR',
+      taxRate: 0.18, // Default 18% GST
+    );
+    
+    final billContent = _generateOrderBillContent(order, settings);
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.print, color: Color(0xFFFF9933)),
+            SizedBox(width: 8),
+            Text('Print Bill'),
+          ],
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 400,
+          child: SingleChildScrollView(
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey[300]!),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    billContent,
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              // In a real app, this would send to printer
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Bill sent to printer!')),
+              );
+              Navigator.pop(context);
+            },
+            icon: const Icon(Icons.print),
+            label: const Text('Print'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF9933),
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _splitOrderBill(BuildContext context, Order order) {
+    int numberOfSplits = 2;
+    bool splitEqually = true;
+    List<List<OrderItem>> splitOrders = [];
+    
+    final settings = AppSettings(
+      currency: 'INR',
+      taxRate: 0.18,
+    );
+    
+    void _updateSplits() {
+      if (splitEqually) {
+        splitOrders = List.generate(numberOfSplits, (index) => <OrderItem>[]);
+        for (int i = 0; i < order.items.length; i++) {
+          splitOrders[i % numberOfSplits].add(order.items[i]);
+        }
+      }
+    }
+    
+    _updateSplits();
+    
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.call_split, color: Color(0xFFFF9933)),
+              SizedBox(width: 8),
+              Text('Split Bill'),
+            ],
+          ),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: 500,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Text('Number of splits: '),
+                    DropdownButton<int>(
+                      value: numberOfSplits,
+                      items: List.generate(8, (index) => index + 2)
+                          .map((i) => DropdownMenuItem(
+                                value: i,
+                                child: Text('$i'),
+                              ))
+                          .toList(),
+                      onChanged: (value) {
+                        setState(() {
+                          numberOfSplits = value!;
+                          _updateSplits();
+                        });
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Checkbox(
+                      value: splitEqually,
+                      onChanged: (value) {
+                        setState(() {
+                          splitEqually = value!;
+                          _updateSplits();
+                        });
+                      },
+                      activeColor: const Color(0xFFFF9933),
+                    ),
+                    const Text('Split equally'),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                const Text('Split Preview:', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: numberOfSplits,
+                    itemBuilder: (context, splitIndex) {
+                      final splitItems = splitOrders[splitIndex];
+                      final splitSubtotal = splitItems.fold(0.0, (sum, item) => sum + item.total);
+                      final splitTax = splitSubtotal * settings.taxRate;
+                      final splitGrandTotal = splitSubtotal + splitTax;
+                      
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Bill ${splitIndex + 1}',
+                                style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFF9933)),
+                              ),
+                              const SizedBox(height: 8),
+                              ...splitItems.map((item) => Padding(
+                                padding: const EdgeInsets.only(bottom: 4),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        '${item.menuItem.name} x${item.quantity}',
+                                        style: const TextStyle(fontSize: 12),
+                                      ),
+                                    ),
+                                    Text(
+                                      '₹${item.total.toStringAsFixed(2)}',
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                  ],
+                                ),
+                              )),
+                              const Divider(height: 16),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text('Subtotal:', style: TextStyle(fontSize: 12)),
+                                  Text('₹${splitSubtotal.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12)),
+                                ],
+                              ),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text('GST (${(settings.taxRate * 100).toInt()}%):', style: const TextStyle(fontSize: 12)),
+                                  Text('₹${splitTax.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12)),
+                                ],
+                              ),
+                              const Divider(height: 8),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text('Total:', style: TextStyle(fontWeight: FontWeight.bold)),
+                                  Text(
+                                    '₹${splitGrandTotal.toStringAsFixed(2)}',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFF9933)),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton.icon(
+              onPressed: () {
+                // Generate separate bills for each split
+                for (int i = 0; i < numberOfSplits; i++) {
+                  final splitItems = splitOrders[i];
+                  final splitSubtotal = splitItems.fold(0.0, (sum, item) => sum + item.total);
+                  final splitTax = splitSubtotal * settings.taxRate;
+                  final billContent = _generateSplitOrderBillContent(splitItems, settings, splitSubtotal, splitTax, i + 1, numberOfSplits, order.id);
+                  
+                  // In a real app, this would print each bill separately
+                  print('Split Bill ${i + 1}:\n$billContent');
+                }
+                
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('$numberOfSplits split bills generated!')),
+                );
+                Navigator.pop(context);
+              },
+              icon: const Icon(Icons.print),
+              label: const Text('Generate Bills'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFF9933),
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _generateOrderBillContent(Order order, AppSettings settings) {
+    final buffer = StringBuffer();
+    buffer.writeln('=' * 32);
+    buffer.writeln('         RESTAURANT BILL');
+    buffer.writeln('=' * 32);
+    buffer.writeln('Order #: ${order.id}');
+    buffer.writeln('Date: ${order.createdAt.day}/${order.createdAt.month}/${order.createdAt.year}');
+    buffer.writeln('Time: ${order.createdAt.hour}:${order.createdAt.minute.toString().padLeft(2, '0')}');
+    buffer.writeln('Type: ${order.type.toString().split('.').last.toUpperCase()}');
+    
+    if (order.customer != null) {
+      buffer.writeln('-' * 32);
+      buffer.writeln('Customer: ${order.customer!.name ?? 'N/A'}');
+      if (order.customer!.phone != null) {
+        buffer.writeln('Phone: ${order.customer!.phone}');
+      }
+    }
+    
+    buffer.writeln('-' * 32);
+    
+    for (final item in order.items) {
+      buffer.writeln('${item.menuItem.name}');
+      buffer.writeln('  ${item.quantity} x ₹${item.menuItem.dineInPrice.toStringAsFixed(2)} = ₹${item.total.toStringAsFixed(2)}');
+      buffer.writeln();
+    }
+    
+    buffer.writeln('-' * 32);
+    buffer.writeln('Subtotal: ₹${order.subtotal.toStringAsFixed(2)}');
+    
+    final calculatedTax = order.subtotal * settings.taxRate;
+    buffer.writeln('GST (${(settings.taxRate * 100).toInt()}%): ₹${calculatedTax.toStringAsFixed(2)}');
+    buffer.writeln('=' * 32);
+    buffer.writeln('TOTAL: ₹${order.grandTotal.toStringAsFixed(2)}');
+    buffer.writeln('=' * 32);
+    buffer.writeln('       Thank you!');
+    
+    return buffer.toString();
+  }
+
+  String _generateSplitOrderBillContent(List<OrderItem> items, AppSettings settings, double splitSubtotal, double splitTax, int billNumber, int totalBills, String orderId) {
+    final buffer = StringBuffer();
+    buffer.writeln('=' * 32);
+    buffer.writeln('    SPLIT BILL $billNumber/$totalBills');
+    buffer.writeln('=' * 32);
+    buffer.writeln('Order #: $orderId');
+    buffer.writeln('Date: ${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}');
+    buffer.writeln('Time: ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}');
+    buffer.writeln('-' * 32);
+    
+    for (final item in items) {
+      buffer.writeln('${item.menuItem.name}');
+      buffer.writeln('  ${item.quantity} x ₹${item.menuItem.dineInPrice.toStringAsFixed(2)} = ₹${item.total.toStringAsFixed(2)}');
+      buffer.writeln();
+    }
+    
+    buffer.writeln('-' * 32);
+    buffer.writeln('Subtotal: ₹${splitSubtotal.toStringAsFixed(2)}');
+    buffer.writeln('GST (${(settings.taxRate * 100).toInt()}%): ₹${splitTax.toStringAsFixed(2)}');
+    buffer.writeln('=' * 32);
+    buffer.writeln('TOTAL: ₹${(splitSubtotal + splitTax).toStringAsFixed(2)}');
+    buffer.writeln('=' * 32);
+    buffer.writeln('       Thank you!');
+    
+    return buffer.toString();
   }
 }
 
