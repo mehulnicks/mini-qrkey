@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
+import 'package:esc_pos_utils/esc_pos_utils.dart';
+import 'dart:typed_data';
+import 'dart:convert';
 import 'dart:convert';
 import 'kot_screen.dart';
 
@@ -424,6 +428,104 @@ class OrderItem {
 
 enum OrderType { dineIn, takeaway, delivery }
 enum OrderStatus { pending, confirmed, preparing, ready, completed, cancelled }
+
+// Bluetooth Printer Management
+class BluetoothPrinterManager {
+  static BluetoothConnection? _connection;
+  static bool get isConnected => _connection?.isConnected ?? false;
+  
+  static Future<List<BluetoothDevice>> getAvailableDevices() async {
+    try {
+      // Get bonded devices
+      final bondedDevices = await FlutterBluetoothSerial.instance.getBondedDevices();
+      return bondedDevices.where((device) => 
+        device.name?.toLowerCase().contains('printer') == true ||
+        device.name?.toLowerCase().contains('pos') == true ||
+        device.name?.toLowerCase().contains('thermal') == true
+      ).toList();
+    } catch (e) {
+      print('Error getting bonded devices: $e');
+      return [];
+    }
+  }
+  
+  static Future<bool> connectToDevice(BluetoothDevice device) async {
+    try {
+      if (_connection?.isConnected == true) {
+        await _connection?.close();
+      }
+      
+      _connection = await BluetoothConnection.toAddress(device.address);
+      return _connection?.isConnected ?? false;
+    } catch (e) {
+      print('Error connecting to printer: $e');
+      return false;
+    }
+  }
+  
+  static Future<void> disconnect() async {
+    try {
+      await _connection?.close();
+      _connection = null;
+    } catch (e) {
+      print('Error disconnecting from printer: $e');
+    }
+  }
+  
+  static Future<bool> printKOT(String kotContent) async {
+    if (!isConnected) {
+      return false;
+    }
+    
+    try {
+      // Create ESC/POS commands
+      final profile = await CapabilityProfile.load();
+      final generator = Generator(PaperSize.mm58, profile);
+      
+      List<int> bytes = [];
+      
+      // Print header
+      bytes += generator.setStyles(const PosStyles(align: PosAlign.center, bold: true));
+      bytes += generator.text('KITCHEN ORDER TICKET');
+      bytes += generator.text('================================');
+      bytes += generator.feed(1);
+      
+      // Print KOT content
+      final lines = kotContent.split('\n');
+      for (String line in lines) {
+        if (line.trim().isEmpty) {
+          bytes += generator.feed(1);
+        } else if (line.contains('===')) {
+          bytes += generator.setStyles(const PosStyles(align: PosAlign.center));
+          bytes += generator.text(line);
+        } else if (line.contains('KOT #:') || line.contains('Date:') || line.contains('Time:')) {
+          bytes += generator.setStyles(const PosStyles(align: PosAlign.left, bold: true));
+          bytes += generator.text(line);
+        } else if (line.contains('ITEMS:')) {
+          bytes += generator.setStyles(const PosStyles(align: PosAlign.center, bold: true));
+          bytes += generator.text(line);
+          bytes += generator.text('--------------------------------');
+        } else {
+          bytes += generator.setStyles(const PosStyles(align: PosAlign.left));
+          bytes += generator.text(line);
+        }
+      }
+      
+      // Cut paper
+      bytes += generator.feed(3);
+      bytes += generator.cut();
+      
+      // Send to printer
+      _connection?.output.add(Uint8List.fromList(bytes));
+      await _connection?.output.allSent;
+      
+      return true;
+    } catch (e) {
+      print('Error printing KOT: $e');
+      return false;
+    }
+  }
+}
 enum PaymentStatus { pending, partial, completed, refunded }
 enum PaymentMethod { cash, card, upi, online }
 
@@ -940,7 +1042,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
             Container(
               margin: const EdgeInsets.only(right: 8),
               child: TextButton.icon(
-                onPressed: () => _showOrderSummary(context),
+                onPressed: () => _placeOrder(),
                 icon: const Icon(Icons.receipt_long),
                 label: Text('${currentOrder.length} item${currentOrder.length > 1 ? 's' : ''}'),
                 style: TextButton.styleFrom(
@@ -1141,14 +1243,6 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                               if (item.isAvailable) {
                                 if (currentOrderItem == null) {
                                   ref.read(currentOrderProvider.notifier).addItem(item, orderType);
-                                  // Show feedback
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text('${item.name} ${l10n(ref, 'item_added')}'),
-                                      duration: const Duration(seconds: 1),
-                                      backgroundColor: Colors.green,
-                                    ),
-                                  );
                                 }
                               }
                             },
@@ -1276,14 +1370,6 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                                       : ElevatedButton.icon(
                                           onPressed: item.isAvailable ? () {
                                             ref.read(currentOrderProvider.notifier).addItem(item, orderType);
-                                            // Show feedback
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              SnackBar(
-                                                content: Text('${item.name} ${l10n(ref, 'item_added')}'),
-                                                duration: const Duration(seconds: 1),
-                                                backgroundColor: Colors.green,
-                                              ),
-                                            );
                                           } : null,
                                           icon: const Icon(Icons.add, size: 18),
                                           label: Text(l10n(ref, 'add_item')),
@@ -1372,183 +1458,25 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                     
                     const SizedBox(width: 16),
                     
-                    // Action Buttons
-                    Row(
-                      children: [
-                        // View Order Button
-                        OutlinedButton.icon(
-                          onPressed: () => _showOrderSummary(context),
-                          icon: const Icon(Icons.visibility, size: 18),
-                          label: Text(l10n(ref, 'view_order')),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white,
-                            side: const BorderSide(color: Colors.white, width: 1.5),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          ),
-                        ),
-                        
-                        const SizedBox(width: 12),
-                        
-                        // Place Order Button
-                        ElevatedButton.icon(
-                          onPressed: () => _placeOrder(),
-                          icon: const Icon(Icons.restaurant, size: 18),
-                          label: Text(l10n(ref, 'place_order')),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: const Color(0xFFFF9933),
-                            elevation: 2,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                            textStyle: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ],
+                    // Place Order Button
+                    ElevatedButton.icon(
+                      onPressed: () => _placeOrder(),
+                      icon: const Icon(Icons.restaurant, size: 18),
+                      label: Text(l10n(ref, 'place_order')),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: const Color(0xFFFF9933),
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        textStyle: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
                     ),
                   ],
                 ),
               ),
             ),
         ],
-      ),
-    );
-  }
-
-  void _showOrderSummary(BuildContext context) {
-    final currentOrder = ref.read(currentOrderProvider);
-    final settings = ref.read(settingsProvider);
-    final orderType = ref.read(orderTypeProvider);
-
-    final subtotal = currentOrder.fold(0.0, (sum, item) => sum + item.total);
-    final tax = subtotal * settings.taxRate;
-    final total = subtotal + tax;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.7,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: Column(
-          children: [
-            // Handle bar
-            Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.symmetric(vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            
-            // Header
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Order Summary',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Close'),
-                  ),
-                ],
-              ),
-            ),
-            
-            const Divider(height: 1),
-            
-            // Order items list
-            Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: currentOrder.length,
-                itemBuilder: (context, index) {
-                  final item = currentOrder[index];
-                  return Card(
-                    margin: const EdgeInsets.symmetric(vertical: 4),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  item.menuItem.name,
-                                  style: const TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                                Text(
-                                  '${item.orderType.name} • ${formatIndianCurrency(settings.currency, item.unitPrice)} each',
-                                  style: TextStyle(color: Colors.grey[600]),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Text('${item.quantity}x'),
-                          const SizedBox(width: 16),
-                          Text(
-                            formatIndianCurrency(settings.currency, item.total),
-                            style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFF9933)),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-            
-            // Summary footer
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.grey[50],
-                border: Border(top: BorderSide(color: Colors.grey[200]!)),
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Subtotal:'),
-                      Text(formatIndianCurrency(settings.currency, subtotal)),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('GST (${(settings.taxRate * 100).toInt()}%):'),
-                      Text(formatIndianCurrency(settings.currency, tax)),
-                    ],
-                  ),
-                  const Divider(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Total:', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                      Text(
-                        formatIndianCurrency(settings.currency, total),
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFFFF9933)),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -1560,6 +1488,10 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
 
     if (currentOrder.isEmpty) return;
 
+    final subtotal = currentOrder.fold(0.0, (sum, item) => sum + item.total);
+    final tax = subtotal * settings.taxRate;
+    final total = subtotal + tax;
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -1567,10 +1499,11 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Container(
           padding: const EdgeInsets.all(24),
-          constraints: const BoxConstraints(maxWidth: 500),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+          constraints: const BoxConstraints(maxWidth: 600),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Header
               Row(
@@ -1586,7 +1519,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                   const SizedBox(width: 12),
                   const Expanded(
                     child: Text(
-                      'Finalize Your Order',
+                      'Order Summary & Checkout',
                       style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                     ),
                   ),
@@ -1598,6 +1531,101 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
               ),
               
               const SizedBox(height: 24),
+              
+              // Order Summary Section
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.grey[50],
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey[200]!),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.receipt_long_outlined, color: Colors.grey[700], size: 20),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Order Items',
+                          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    // Order items list
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 200),
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: currentOrder.length,
+                        itemBuilder: (context, index) {
+                          final item = currentOrder[index];
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        item.menuItem.name,
+                                        style: const TextStyle(fontWeight: FontWeight.w500),
+                                      ),
+                                      Text(
+                                        '${item.orderType.name} • ${formatIndianCurrency(settings.currency, item.unitPrice)} each',
+                                        style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Text('${item.quantity}x', style: const TextStyle(fontWeight: FontWeight.w500)),
+                                const SizedBox(width: 16),
+                                Text(
+                                  formatIndianCurrency(settings.currency, item.total),
+                                  style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFF9933)),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const Divider(height: 24),
+                    // Order totals
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Subtotal:'),
+                        Text(formatIndianCurrency(settings.currency, subtotal)),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('GST (${(settings.taxRate * 100).toInt()}%):'),
+                        Text(formatIndianCurrency(settings.currency, tax)),
+                      ],
+                    ),
+                    const Divider(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Total:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        Text(
+                          formatIndianCurrency(settings.currency, total),
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFFFF9933)),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              
+              const SizedBox(height: 16),
               
               // Customer Information Section
               Container(
@@ -1722,73 +1750,71 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
               ),
               // Actions Section
               const SizedBox(height: 24),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.pop(context),
-                        style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: Colors.grey),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.grey),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: const Text(
+                        'Cancel',
+                        style: TextStyle(color: Colors.grey, fontSize: 16),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFFF9933), Color(0xFFFFAD5C)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _confirmPlaceOrder();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.transparent,
+                          shadowColor: Colors.transparent,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10),
                           ),
                         ),
-                        child: const Text(
-                          'Cancel',
-                          style: TextStyle(color: Colors.grey, fontSize: 16),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      flex: 2,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFFFF9933), Color(0xFFFFAD5C)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: ElevatedButton(
-                          onPressed: () {
-                            _confirmPlaceOrder();
-                            Navigator.pop(context);
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.transparent,
-                            shadowColor: Colors.transparent,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.check_circle, color: Colors.white, size: 20),
-                              SizedBox(width: 8),
-                              Text(
-                                'Confirm Order',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Place Order • ${formatIndianCurrency(settings.currency, total)}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
                               ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ],
+            ),
           ),
         ),
       ),
@@ -1891,12 +1917,12 @@ Total Items: ${items.fold(0, (sum, item) => sum + item.quantity)}
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: Colors.green,
+                color: BluetoothPrinterManager.isConnected ? Colors.green : Colors.orange,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Text(
-                'PRINTED',
-                style: TextStyle(
+              child: Text(
+                BluetoothPrinterManager.isConnected ? 'PRINTER CONNECTED' : 'NO PRINTER',
+                style: const TextStyle(
                   color: Colors.white,
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
@@ -1928,23 +1954,53 @@ Total Items: ${items.fold(0, (sum, item) => sum + item.quantity)}
           ),
         ),
         actions: [
+          if (!BluetoothPrinterManager.isConnected)
+            ElevatedButton.icon(
+              onPressed: () => _showBluetoothPrinterDialog(),
+              icon: const Icon(Icons.bluetooth),
+              label: const Text('Connect Printer'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+              ),
+            ),
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Close'),
           ),
           ElevatedButton.icon(
-            onPressed: () {
-              // In a real implementation, this would send to printer
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('KOT sent to kitchen printer'),
-                  backgroundColor: Colors.green,
-                ),
-              );
+            onPressed: () async {
+              if (BluetoothPrinterManager.isConnected) {
+                // Print via Bluetooth
+                final success = await BluetoothPrinterManager.printKOT(kotContent);
+                if (success) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('KOT printed successfully!'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Failed to print KOT. Check printer connection.'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              } else {
+                // Show preview only
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Connect a Bluetooth printer to print KOT'),
+                    backgroundColor: Colors.orange,
+                  ),
+                );
+              }
               Navigator.pop(context);
             },
             icon: const Icon(Icons.print),
-            label: const Text('Print Again'),
+            label: Text(BluetoothPrinterManager.isConnected ? 'Print KOT' : 'Preview Only'),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFFF9933),
               foregroundColor: Colors.white,
@@ -1958,6 +2014,152 @@ Total Items: ${items.fold(0, (sum, item) => sum + item.quantity)}
     print('=== KOT PRINTED ===');
     print(kotContent);
     print('==================');
+  }
+
+  void _showBluetoothPrinterDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.bluetooth, color: Colors.blue),
+            SizedBox(width: 8),
+            Text('Connect Bluetooth Printer'),
+          ],
+        ),
+        content: Container(
+          width: double.maxFinite,
+          height: 300,
+          child: FutureBuilder<List<BluetoothDevice>>(
+            future: BluetoothPrinterManager.getAvailableDevices(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              
+              if (snapshot.hasError) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.error, color: Colors.red, size: 48),
+                      const SizedBox(height: 16),
+                      Text('Error: ${snapshot.error}'),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _showBluetoothPrinterDialog();
+                        },
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                );
+              }
+              
+              final devices = snapshot.data ?? [];
+              
+              if (devices.isEmpty) {
+                return const Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.bluetooth_disabled, size: 48, color: Colors.grey),
+                      SizedBox(height: 16),
+                      Text(
+                        'No paired Bluetooth printers found',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 16),
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'Please pair your thermal printer in Bluetooth settings first',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                );
+              }
+              
+              return ListView.builder(
+                itemCount: devices.length,
+                itemBuilder: (context, index) {
+                  final device = devices[index];
+                  return Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.print, color: Color(0xFFFF9933)),
+                      title: Text(device.name ?? 'Unknown Printer'),
+                      subtitle: Text(device.address),
+                      trailing: const Icon(Icons.arrow_forward_ios),
+                      onTap: () async {
+                        Navigator.pop(context);
+                        
+                        // Show connecting dialog
+                        showDialog(
+                          context: context,
+                          barrierDismissible: false,
+                          builder: (context) => const AlertDialog(
+                            content: Row(
+                              children: [
+                                CircularProgressIndicator(),
+                                SizedBox(width: 20),
+                                Text('Connecting to printer...'),
+                              ],
+                            ),
+                          ),
+                        );
+                        
+                        // Connect to printer
+                        final success = await BluetoothPrinterManager.connectToDevice(device);
+                        Navigator.pop(context); // Close connecting dialog
+                        
+                        if (success) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Connected to ${device.name}'),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Failed to connect to ${device.name}'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          if (BluetoothPrinterManager.isConnected)
+            TextButton(
+              onPressed: () async {
+                await BluetoothPrinterManager.disconnect();
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Printer disconnected'),
+                    backgroundColor: Colors.orange,
+                  ),
+                );
+              },
+              child: const Text('Disconnect', style: TextStyle(color: Colors.red)),
+            ),
+        ],
+      ),
+    );
   }
 }
 
