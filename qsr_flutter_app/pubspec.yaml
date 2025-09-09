@@ -1,0 +1,48 @@
+name: qsr_flutter_app
+description: A Flutter app for Quick Service Restaurants to manage orders and connect to Bluetooth printers.
+
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.1.0 <4.0.0"
+  flutter: ">=3.13.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # State Management
+  flutter_riverpod: ^2.4.9
+  
+  # Storage
+  shared_preferences: ^2.2.2
+  sqflite: ^2.3.0
+  
+  # Bluetooth & Printing
+  flutter_bluetooth_serial: ^0.4.0
+  esc_pos_utils: ^1.1.0
+  
+  # Utilities
+  intl: ^0.18.1
+  uuid: ^4.1.0
+  
+  # UI Components
+  cupertino_icons: ^1.0.2
+  material_design_icons_flutter: ^7.0.0
+  
+  # Network & Connectivity
+  connectivity_plus: ^5.0.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/templates/kot_template.txt
+    - assets/fonts/
+    - assets/translations/

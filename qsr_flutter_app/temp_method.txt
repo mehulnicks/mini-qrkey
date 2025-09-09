@@ -1,0 +1,2 @@
+  Widget _buildMobileLayout(List<MenuItem> menuItems, List<OrderItem> currentOrder, 
+                          AppSettings settings, double subtotal, double tax, double total) {

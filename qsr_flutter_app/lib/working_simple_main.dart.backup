@@ -1,0 +1,1973 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:intl/intl.dart';
+import 'dart:convert';
+
+// Helper function for Indian currency formatting
+String formatIndianCurrency(String currency, double amount) {
+  if (currency == '₹') {
+    // For Indian Rupee, show no decimal if it's a whole number
+    if (amount % 1 == 0) {
+      return '₹${amount.toInt()}';
+    } else {
+      return '₹${amount.toStringAsFixed(2)}';
+    }
+  }
+  return '$currency${amount.toStringAsFixed(2)}';
+}
+
+void main() {
+  runApp(const ProviderScope(child: QSRApp()));
+}
+
+class QSRApp extends StatelessWidget {
+  const QSRApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'QSR Management App',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.orange),
+        useMaterial3: true,
+        appBarTheme: const AppBarTheme(
+          centerTitle: true,
+          elevation: 2,
+        ),
+        cardTheme: CardThemeData(
+          elevation: 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+        ),
+      ),
+      home: const MainScreen(),
+    );
+  }
+}
+
+// Data Models
+class MenuItem {
+  final String id;
+  final String name;
+  final double price;
+  final double costPrice;
+  final String category;
+  final String description;
+  final bool isAvailable;
+  final int stockQuantity;
+
+  MenuItem({
+    required this.id,
+    required this.name,
+    required this.price,
+    this.costPrice = 0.0,
+    required this.category,
+    this.description = '',
+    this.isAvailable = true,
+    this.stockQuantity = 100,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'price': price,
+    'costPrice': costPrice,
+    'category': category,
+    'description': description,
+    'isAvailable': isAvailable,
+    'stockQuantity': stockQuantity,
+  };
+
+  factory MenuItem.fromJson(Map<String, dynamic> json) => MenuItem(
+    id: json['id'],
+    name: json['name'],
+    price: json['price'],
+    costPrice: json['costPrice'] ?? 0.0,
+    category: json['category'],
+    description: json['description'] ?? '',
+    isAvailable: json['isAvailable'] ?? true,
+    stockQuantity: json['stockQuantity'] ?? 100,
+  );
+}
+
+class OrderItem {
+  final MenuItem menuItem;
+  final int quantity;
+  final String? notes;
+
+  OrderItem({
+    required this.menuItem,
+    required this.quantity,
+    this.notes,
+  });
+
+  double get total => menuItem.price * quantity;
+}
+
+class Customer {
+  final String name;
+  final String phone;
+  final String? address;
+
+  Customer({
+    required this.name,
+    required this.phone,
+    this.address,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'phone': phone,
+    'address': address,
+  };
+
+  factory Customer.fromJson(Map<String, dynamic> json) => Customer(
+    name: json['name'],
+    phone: json['phone'],
+    address: json['address'],
+  );
+}
+
+class Order {
+  final String id;
+  final List<OrderItem> items;
+  final double total;
+  final DateTime createdAt;
+  final String status;
+  final String type;
+  final String? tableNumber;
+  final Customer? customer;
+  final String? notes;
+
+  Order({
+    required this.id,
+    required this.items,
+    required this.total,
+    required this.createdAt,
+    this.status = 'Pending',
+    this.type = 'Dine In',
+    this.tableNumber,
+    this.customer,
+    this.notes,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'items': items.map((item) => {
+      'menuItem': item.menuItem.toJson(),
+      'quantity': item.quantity,
+      'notes': item.notes,
+    }).toList(),
+    'total': total,
+    'createdAt': createdAt.millisecondsSinceEpoch,
+    'status': status,
+    'type': type,
+    'tableNumber': tableNumber,
+    'customer': customer?.toJson(),
+    'notes': notes,
+  };
+
+  factory Order.fromJson(Map<String, dynamic> json) => Order(
+    id: json['id'],
+    items: (json['items'] as List).map((item) => OrderItem(
+      menuItem: MenuItem.fromJson(item['menuItem']),
+      quantity: item['quantity'],
+      notes: item['notes'],
+    )).toList(),
+    total: json['total'],
+    createdAt: DateTime.fromMillisecondsSinceEpoch(json['createdAt']),
+    status: json['status'] ?? 'Pending',
+    type: json['type'] ?? 'Dine In',
+    tableNumber: json['tableNumber'],
+    customer: json['customer'] != null ? Customer.fromJson(json['customer']) : null,
+    notes: json['notes'],
+  );
+}
+
+class AppSettings {
+  final String storeName;
+  final String address;
+  final String phone;
+  final String currency;
+  final double taxRate;
+  final bool autoKotPrint;
+  final bool includeTaxInPrice;
+  final bool printerConnected;
+  final String paperSize;
+  final bool darkMode;
+  final bool soundEnabled;
+
+  AppSettings({
+    this.storeName = 'Demo Restaurant',
+    this.address = '123 Main Street, Mumbai',
+    this.phone = '+91-98765-43210',
+    this.currency = '₹',
+    this.taxRate = 18.0,
+    this.autoKotPrint = true,
+    this.includeTaxInPrice = false,
+    this.printerConnected = false,
+    this.paperSize = '80mm',
+    this.darkMode = false,
+    this.soundEnabled = true,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'storeName': storeName,
+    'address': address,
+    'phone': phone,
+    'currency': currency,
+    'taxRate': taxRate,
+    'autoKotPrint': autoKotPrint,
+    'includeTaxInPrice': includeTaxInPrice,
+    'printerConnected': printerConnected,
+    'paperSize': paperSize,
+    'darkMode': darkMode,
+    'soundEnabled': soundEnabled,
+  };
+
+  factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
+    storeName: json['storeName'] ?? 'Demo Restaurant',
+    address: json['address'] ?? '123 Main Street, Mumbai',
+    phone: json['phone'] ?? '+91-98765-43210',
+    currency: json['currency'] ?? '₹',
+    taxRate: json['taxRate'] ?? 18.0,
+    autoKotPrint: json['autoKotPrint'] ?? true,
+    includeTaxInPrice: json['includeTaxInPrice'] ?? false,
+    printerConnected: json['printerConnected'] ?? false,
+    paperSize: json['paperSize'] ?? '80mm',
+    darkMode: json['darkMode'] ?? false,
+    soundEnabled: json['soundEnabled'] ?? true,
+  );
+}
+
+// Storage Service
+class StorageService {
+  static const String _menuKey = 'menu_items';
+  static const String _ordersKey = 'orders';
+  static const String _settingsKey = 'app_settings';
+
+  static Future<void> saveMenuItems(List<MenuItem> items) async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonList = items.map((item) => item.toJson()).toList();
+    await prefs.setString(_menuKey, json.encode(jsonList));
+  }
+
+  static Future<List<MenuItem>> loadMenuItems() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonString = prefs.getString(_menuKey);
+    if (jsonString == null) return _getDefaultMenuItems();
+    
+    final jsonList = json.decode(jsonString) as List;
+    return jsonList.map((item) => MenuItem.fromJson(item)).toList();
+  }
+
+  static Future<void> saveOrders(List<Order> orders) async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonList = orders.map((order) => order.toJson()).toList();
+    await prefs.setString(_ordersKey, json.encode(jsonList));
+  }
+
+  static Future<List<Order>> loadOrders() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonString = prefs.getString(_ordersKey);
+    if (jsonString == null) return [];
+    
+    final jsonList = json.decode(jsonString) as List;
+    return jsonList.map((order) => Order.fromJson(order)).toList();
+  }
+
+  static Future<void> saveSettings(AppSettings settings) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_settingsKey, json.encode(settings.toJson()));
+  }
+
+  static Future<AppSettings> loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonString = prefs.getString(_settingsKey);
+    if (jsonString == null) return AppSettings();
+    
+    final json = jsonDecode(jsonString) as Map<String, dynamic>;
+    return AppSettings.fromJson(json);
+  }
+
+  static List<MenuItem> _getDefaultMenuItems() {
+    return [
+      MenuItem(id: '1', name: 'Cheeseburger', price: 899.00, costPrice: 450.00, category: 'Main'),
+      MenuItem(id: '2', name: 'Chicken Wings', price: 599.00, costPrice: 300.00, category: 'Main'),
+      MenuItem(id: '3', name: 'Caesar Salad', price: 549.00, costPrice: 250.00, category: 'Main'),
+      MenuItem(id: '4', name: 'French Fries', price: 299.00, costPrice: 100.00, category: 'Sides'),
+      MenuItem(id: '5', name: 'Onion Rings', price: 399.00, costPrice: 150.00, category: 'Sides'),
+      MenuItem(id: '6', name: 'Coca Cola', price: 149.00, costPrice: 40.00, category: 'Drinks'),
+      MenuItem(id: '7', name: 'Iced Tea', price: 129.00, costPrice: 25.00, category: 'Drinks'),
+      MenuItem(id: '8', name: 'Coffee', price: 199.00, costPrice: 30.00, category: 'Drinks'),
+    ];
+  }
+}
+
+// State Notifiers
+class MenuNotifier extends StateNotifier<List<MenuItem>> {
+  MenuNotifier() : super([]);
+
+  Future<void> loadItems() async {
+    state = await StorageService.loadMenuItems();
+  }
+
+  Future<void> addItem(MenuItem item) async {
+    state = [...state, item];
+    await StorageService.saveMenuItems(state);
+  }
+
+  Future<void> updateItem(MenuItem item) async {
+    state = [
+      for (final existing in state)
+        if (existing.id == item.id) item else existing
+    ];
+    await StorageService.saveMenuItems(state);
+  }
+
+  Future<void> removeItem(String id) async {
+    state = state.where((item) => item.id != id).toList();
+    await StorageService.saveMenuItems(state);
+  }
+}
+
+class CurrentOrderNotifier extends StateNotifier<List<OrderItem>> {
+  CurrentOrderNotifier() : super([]);
+
+  void addItem(MenuItem menuItem, int quantity, String? notes) {
+    final existingIndex = state.indexWhere((item) => item.menuItem.id == menuItem.id);
+    
+    if (existingIndex >= 0) {
+      final existing = state[existingIndex];
+      final newItem = OrderItem(
+        menuItem: menuItem,
+        quantity: existing.quantity + quantity,
+        notes: notes ?? existing.notes,
+      );
+      state = [
+        ...state.sublist(0, existingIndex),
+        newItem,
+        ...state.sublist(existingIndex + 1),
+      ];
+    } else {
+      state = [...state, OrderItem(menuItem: menuItem, quantity: quantity, notes: notes)];
+    }
+  }
+
+  void updateQuantity(String menuItemId, int quantity) {
+    if (quantity <= 0) {
+      removeItem(menuItemId);
+      return;
+    }
+    
+    state = [
+      for (final item in state)
+        if (item.menuItem.id == menuItemId)
+          OrderItem(menuItem: item.menuItem, quantity: quantity, notes: item.notes)
+        else
+          item
+    ];
+  }
+
+  void removeItem(String menuItemId) {
+    state = state.where((item) => item.menuItem.id != menuItemId).toList();
+  }
+
+  void clear() {
+    state = [];
+  }
+
+  double get total => state.fold(0, (sum, item) => sum + item.total);
+}
+
+class OrdersNotifier extends StateNotifier<List<Order>> {
+  OrdersNotifier() : super([]);
+
+  Future<void> loadOrders() async {
+    state = await StorageService.loadOrders();
+  }
+
+  Future<String> addOrder(List<OrderItem> items, {
+    String type = 'Dine In',
+    String? tableNumber,
+    Customer? customer,
+    String? notes,
+  }) async {
+    final orderId = DateTime.now().millisecondsSinceEpoch.toString();
+    final total = items.fold(0.0, (sum, item) => sum + item.total);
+    
+    final order = Order(
+      id: orderId,
+      items: items,
+      total: total,
+      createdAt: DateTime.now(),
+      type: type,
+      tableNumber: tableNumber,
+      customer: customer,
+      notes: notes,
+    );
+    
+    state = [order, ...state];
+    await StorageService.saveOrders(state);
+    return orderId;
+  }
+
+  Future<void> updateOrderStatus(String orderId, String status) async {
+    state = [
+      for (final order in state)
+        if (order.id == orderId)
+          Order(
+            id: order.id,
+            items: order.items,
+            total: order.total,
+            createdAt: order.createdAt,
+            status: status,
+            type: order.type,
+            tableNumber: order.tableNumber,
+            customer: order.customer,
+            notes: order.notes,
+          )
+        else
+          order
+    ];
+    await StorageService.saveOrders(state);
+  }
+}
+
+class SettingsNotifier extends StateNotifier<AppSettings> {
+  SettingsNotifier() : super(AppSettings());
+
+  Future<void> loadSettings() async {
+    state = await StorageService.loadSettings();
+  }
+
+  Future<void> updateStoreInfo(String name, String address, String phone) async {
+    state = AppSettings(
+      storeName: name,
+      address: address,
+      phone: phone,
+      currency: state.currency,
+      taxRate: state.taxRate,
+      autoKotPrint: state.autoKotPrint,
+      includeTaxInPrice: state.includeTaxInPrice,
+      printerConnected: state.printerConnected,
+      paperSize: state.paperSize,
+      darkMode: state.darkMode,
+      soundEnabled: state.soundEnabled,
+    );
+    await StorageService.saveSettings(state);
+  }
+
+  Future<void> updateCurrency(String currency) async {
+    state = AppSettings(
+      storeName: state.storeName,
+      address: state.address,
+      phone: state.phone,
+      currency: currency,
+      taxRate: state.taxRate,
+      autoKotPrint: state.autoKotPrint,
+      includeTaxInPrice: state.includeTaxInPrice,
+      printerConnected: state.printerConnected,
+      paperSize: state.paperSize,
+      darkMode: state.darkMode,
+      soundEnabled: state.soundEnabled,
+    );
+    await StorageService.saveSettings(state);
+  }
+
+  Future<void> updateTaxRate(double rate) async {
+    state = AppSettings(
+      storeName: state.storeName,
+      address: state.address,
+      phone: state.phone,
+      currency: state.currency,
+      taxRate: rate,
+      autoKotPrint: state.autoKotPrint,
+      includeTaxInPrice: state.includeTaxInPrice,
+      printerConnected: state.printerConnected,
+      paperSize: state.paperSize,
+      darkMode: state.darkMode,
+      soundEnabled: state.soundEnabled,
+    );
+    await StorageService.saveSettings(state);
+  }
+}
+
+// Providers
+final menuNotifierProvider = StateNotifierProvider<MenuNotifier, List<MenuItem>>((ref) {
+  return MenuNotifier();
+});
+
+final currentOrderProvider = StateNotifierProvider<CurrentOrderNotifier, List<OrderItem>>((ref) {
+  return CurrentOrderNotifier();
+});
+
+final ordersProvider = StateNotifierProvider<OrdersNotifier, List<Order>>((ref) {
+  return OrdersNotifier();
+});
+
+final settingsProvider = StateNotifierProvider<SettingsNotifier, AppSettings>((ref) {
+  return SettingsNotifier();
+});
+
+// Main Navigation Screen
+class MainScreen extends ConsumerStatefulWidget {
+  const MainScreen({super.key});
+
+  @override
+  ConsumerState<MainScreen> createState() => _MainScreenState();
+}
+
+class _MainScreenState extends ConsumerState<MainScreen> {
+  int _selectedIndex = 0;
+
+  final List<Widget> _screens = [
+    const OrdersScreen(),
+    const MenuScreen(),
+    const ReportsScreen(),
+    const SettingsScreen(),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    // Load initial data
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(menuNotifierProvider.notifier).loadItems();
+      ref.read(ordersProvider.notifier).loadOrders();
+      ref.read(settingsProvider.notifier).loadSettings();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: _screens[_selectedIndex],
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _selectedIndex,
+        onDestinationSelected: (index) {
+          setState(() {
+            _selectedIndex = index;
+          });
+        },
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.restaurant_menu),
+            label: 'Orders',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.fastfood),
+            label: 'Menu',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.analytics),
+            label: 'Reports',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.settings),
+            label: 'Settings',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Orders Screen
+class OrdersScreen extends ConsumerStatefulWidget {
+  const OrdersScreen({super.key});
+
+  @override
+  ConsumerState<OrdersScreen> createState() => _OrdersScreenState();
+}
+
+class _OrdersScreenState extends ConsumerState<OrdersScreen> {
+  String _orderType = 'Dine In';
+  String? _tableNumber;
+  Customer? _customer;
+  String? _orderNotes;
+  final _customerNameController = TextEditingController();
+  final _customerPhoneController = TextEditingController();
+  final _tableController = TextEditingController();
+  final _notesController = TextEditingController();
+
+  @override
+  Widget build(BuildContext context) {
+    final menuItems = ref.watch(menuNotifierProvider);
+    final currentOrder = ref.watch(currentOrderProvider);
+    final settings = ref.watch(settingsProvider);
+
+    final subtotal = currentOrder.fold(0.0, (sum, item) => sum + item.total);
+    final tax = subtotal * settings.taxRate / 100;
+    final total = subtotal + tax;
+
+    final isMobile = MediaQuery.of(context).size.width < 768;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Orders'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.print),
+            onPressed: currentOrder.isNotEmpty ? () => _printKOT(currentOrder) : null,
+          ),
+        ],
+      ),
+      body: isMobile ? _buildMobileLayout(menuItems, currentOrder, settings, subtotal, tax, total) 
+                     : _buildDesktopLayout(menuItems, currentOrder, settings, subtotal, tax, total),
+    );
+  }
+
+  Widget _buildDesktopLayout(List<MenuItem> menuItems, List<OrderItem> currentOrder, 
+                           AppSettings settings, double subtotal, double tax, double total) {
+    return Row(
+      children: [
+        // Menu Items Section
+        Expanded(
+          flex: 2,
+          child: Column(
+            children: [
+              // Order Type Selection
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                    border: Border(bottom: BorderSide(color: Colors.grey[300]!)),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: _orderType,
+                          decoration: const InputDecoration(
+                            labelText: 'Order Type',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: ['Dine In', 'Takeaway', 'Delivery'].map((type) {
+                            return DropdownMenuItem(value: type, child: Text(type));
+                          }).toList(),
+                          onChanged: (value) {
+                            setState(() {
+                              _orderType = value!;
+                            });
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      if (_orderType == 'Dine In') ...[
+                        Expanded(
+                          child: TextField(
+                            controller: _tableController,
+                            decoration: const InputDecoration(
+                              labelText: 'Table Number',
+                              border: OutlineInputBorder(),
+                            ),
+                            onChanged: (value) => _tableNumber = value.isEmpty ? null : value,
+                          ),
+                        ),
+                      ],
+                      if (_orderType == 'Delivery') ...[
+                        Expanded(
+                          child: TextField(
+                            controller: _customerNameController,
+                            decoration: const InputDecoration(
+                              labelText: 'Customer Name',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: _customerPhoneController,
+                            decoration: const InputDecoration(
+                              labelText: 'Phone',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                // Menu Items Grid
+                Expanded(
+                  child: GridView.builder(
+                    padding: const EdgeInsets.all(16),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      childAspectRatio: 1.5,
+                      crossAxisSpacing: 10,
+                      mainAxisSpacing: 10,
+                    ),
+                    itemCount: menuItems.length,
+                    itemBuilder: (context, index) {
+                      final item = menuItems[index];
+                      return Card(
+                        child: InkWell(
+                          onTap: item.isAvailable && item.stockQuantity > 0
+                              ? () => _addToOrder(item)
+                              : null,
+                          child: Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  _getIconForCategory(item.category),
+                                  size: 32,
+                                  color: item.isAvailable && item.stockQuantity > 0
+                                      ? Theme.of(context).primaryColor
+                                      : Colors.grey,
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  item.name,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: item.isAvailable && item.stockQuantity > 0
+                                        ? null
+                                        : Colors.grey,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                                Text(
+                                  formatIndianCurrency(settings.currency, item.price),
+                                  style: TextStyle(
+                                    color: item.isAvailable && item.stockQuantity > 0
+                                        ? Colors.green
+                                        : Colors.grey,
+                                  ),
+                                ),
+                                if (!item.isAvailable || item.stockQuantity == 0)
+                                  const Text(
+                                    'Out of Stock',
+                                    style: TextStyle(color: Colors.red, fontSize: 10),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Current Order Section
+          Expanded(
+            flex: 1,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                border: Border(left: BorderSide(color: Colors.grey[300]!)),
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border(bottom: BorderSide(color: Colors.grey[300]!)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Current Order', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                        if (currentOrder.isNotEmpty)
+                          IconButton(
+                            icon: const Icon(Icons.clear),
+                            onPressed: () => ref.read(currentOrderProvider.notifier).clear(),
+                          ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: currentOrder.isEmpty
+                        ? const Center(
+                            child: Text(
+                              'No items in order\nTap menu items to add',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.grey),
+                            ),
+                          )
+                        : ListView.builder(
+                            padding: const EdgeInsets.all(8),
+                            itemCount: currentOrder.length,
+                            itemBuilder: (context, index) {
+                              final orderItem = currentOrder[index];
+                              return Card(
+                                child: ListTile(
+                                  title: Text(orderItem.menuItem.name),
+                                  subtitle: Text('${formatIndianCurrency(settings.currency, orderItem.menuItem.price)} each'),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(Icons.remove),
+                                        onPressed: () {
+                                          ref.read(currentOrderProvider.notifier)
+                                              .updateQuantity(orderItem.menuItem.id, orderItem.quantity - 1);
+                                        },
+                                      ),
+                                      Text('${orderItem.quantity}'),
+                                      IconButton(
+                                        icon: const Icon(Icons.add),
+                                        onPressed: () {
+                                          ref.read(currentOrderProvider.notifier)
+                                              .updateQuantity(orderItem.menuItem.id, orderItem.quantity + 1);
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border(top: BorderSide(color: Colors.grey[300]!)),
+                    ),
+                    child: Column(
+                      children: [
+                        TextField(
+                          controller: _notesController,
+                          decoration: const InputDecoration(
+                            labelText: 'Order Notes',
+                            border: OutlineInputBorder(),
+                          ),
+                          maxLines: 2,
+                          onChanged: (value) => _orderNotes = value.isEmpty ? null : value,
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Subtotal:'),
+                            Text(formatIndianCurrency(settings.currency, subtotal)),
+                          ],
+                        ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('GST (${settings.taxRate}%):'),
+                            Text(formatIndianCurrency(settings.currency, tax)),
+                          ],
+                        ),
+                        const Divider(),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Total:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                            Text(formatIndianCurrency(settings.currency, total), 
+                                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: currentOrder.isNotEmpty ? _placeOrder : null,
+                            child: const Text('Place Order'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMobileLayout(List<MenuItem> menuItems, List<OrderItem> currentOrder, 
+                          AppSettings settings, double subtotal, double tax, double total) {
+    return Column(
+      children: [
+        // Order Type Selection (Mobile)
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.blue[50],
+            border: Border(bottom: BorderSide(color: Colors.grey[300]!)),
+          ),
+          child: Column(
+            children: [
+              DropdownButtonFormField<String>(
+                value: _orderType,
+                decoration: const InputDecoration(
+                  labelText: 'Order Type',
+                  border: OutlineInputBorder(),
+                ),
+                items: ['Dine In', 'Takeaway', 'Delivery'].map((type) {
+                  return DropdownMenuItem(value: type, child: Text(type));
+                }).toList(),
+                onChanged: (value) {
+                  setState(() {
+                    _orderType = value!;
+                  });
+                },
+              ),
+              const SizedBox(height: 12),
+              if (_orderType == 'Dine In') ...[
+                TextField(
+                  controller: _tableController,
+                  decoration: const InputDecoration(
+                    labelText: 'Table Number',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (value) => _tableNumber = value.isEmpty ? null : value,
+                ),
+              ],
+              if (_orderType == 'Delivery') ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _customerNameController,
+                        decoration: const InputDecoration(
+                          labelText: 'Customer Name',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: _customerPhoneController,
+                        decoration: const InputDecoration(
+                          labelText: 'Phone',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+        // Menu Items Grid (Mobile)
+        Expanded(
+          child: DefaultTabController(
+            length: 2,
+            child: Column(
+              children: [
+                const TabBar(
+                  tabs: [
+                    Tab(icon: Icon(Icons.restaurant_menu), text: 'Menu'),
+                    Tab(icon: Icon(Icons.shopping_cart), text: 'Order'),
+                  ],
+                ),
+                Expanded(
+                  child: TabBarView(
+                    children: [
+                      // Menu Tab
+                      GridView.builder(
+                        padding: const EdgeInsets.all(8),
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          childAspectRatio: 1.2,
+                          crossAxisSpacing: 8,
+                          mainAxisSpacing: 8,
+                        ),
+                        itemCount: menuItems.length,
+                        itemBuilder: (context, index) {
+                          final item = menuItems[index];
+                          return Card(
+                            child: InkWell(
+                              onTap: item.isAvailable && item.stockQuantity > 0
+                                  ? () => _addToOrder(item)
+                                  : null,
+                              child: Padding(
+                                padding: const EdgeInsets.all(8),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      _getIconForCategory(item.category),
+                                      size: 24,
+                                      color: item.isAvailable && item.stockQuantity > 0
+                                          ? Theme.of(context).primaryColor
+                                          : Colors.grey,
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      item.name,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                        color: item.isAvailable && item.stockQuantity > 0
+                                            ? null
+                                            : Colors.grey,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      formatIndianCurrency(settings.currency, item.price),
+                                      style: TextStyle(
+                                        color: item.isAvailable && item.stockQuantity > 0
+                                            ? Colors.green
+                                            : Colors.grey,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    if (!item.isAvailable || item.stockQuantity == 0)
+                                      const Text(
+                                        'Out of Stock',
+                                        style: TextStyle(color: Colors.red, fontSize: 9),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      // Order Tab
+                      _buildMobileOrderView(currentOrder, settings, subtotal, tax, total),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMobileOrderView(List<OrderItem> currentOrder, AppSettings settings, 
+                              double subtotal, double tax, double total) {
+    return Column(
+      children: [
+        // Current Order Items
+        Expanded(
+          child: currentOrder.isEmpty
+              ? const Center(
+                  child: Text(
+                    'No items in order\nTap menu items to add',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(8),
+                  itemCount: currentOrder.length,
+                  itemBuilder: (context, index) {
+                    final orderItem = currentOrder[index];
+                    return Card(
+                      child: ListTile(
+                        title: Text(orderItem.menuItem.name, style: const TextStyle(fontSize: 14)),
+                        subtitle: Text('${formatIndianCurrency(settings.currency, orderItem.menuItem.price)} each'),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.remove, size: 20),
+                              onPressed: () {
+                                ref.read(currentOrderProvider.notifier)
+                                    .updateQuantity(orderItem.menuItem.id, orderItem.quantity - 1);
+                              },
+                            ),
+                            Text('${orderItem.quantity}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                            IconButton(
+                              icon: const Icon(Icons.add, size: 20),
+                              onPressed: () {
+                                ref.read(currentOrderProvider.notifier)
+                                    .updateQuantity(orderItem.menuItem.id, orderItem.quantity + 1);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+        // Order Summary and Notes
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border(top: BorderSide(color: Colors.grey[300]!)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.grey.withOpacity(0.2),
+                spreadRadius: 1,
+                blurRadius: 3,
+                offset: const Offset(0, -1),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              TextField(
+                controller: _notesController,
+                decoration: const InputDecoration(
+                  labelText: 'Order Notes',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                maxLines: 2,
+                onChanged: (value) => _orderNotes = value.isEmpty ? null : value,
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Subtotal:'),
+                  Text(formatIndianCurrency(settings.currency, subtotal)),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('GST (${settings.taxRate}%):'),
+                  Text(formatIndianCurrency(settings.currency, tax)),
+                ],
+              ),
+              const Divider(),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Total:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  Text(formatIndianCurrency(settings.currency, total), 
+                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: currentOrder.isNotEmpty ? _placeOrder : null,
+                  child: const Text('Place Order'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  IconData _getIconForCategory(String category) {
+    switch (category) {
+      case 'Main':
+        return Icons.restaurant;
+      case 'Sides':
+        return Icons.food_bank;
+      case 'Drinks':
+        return Icons.local_drink;
+      default:
+        return Icons.fastfood;
+    }
+  }
+
+  void _addToOrder(MenuItem item) {
+    ref.read(currentOrderProvider.notifier).addItem(item, 1, null);
+  }
+
+  void _placeOrder() async {
+    final currentOrder = ref.read(currentOrderProvider);
+    
+    Customer? customer;
+    if (_orderType == 'Delivery' && _customerNameController.text.isNotEmpty) {
+      customer = Customer(
+        name: _customerNameController.text,
+        phone: _customerPhoneController.text,
+      );
+    }
+
+    final orderId = await ref.read(ordersProvider.notifier).addOrder(
+      currentOrder,
+      type: _orderType,
+      tableNumber: _tableNumber,
+      customer: customer,
+      notes: _orderNotes,
+    );
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Order #$orderId placed successfully!')),
+      );
+    }
+
+    // Clear the current order
+    ref.read(currentOrderProvider.notifier).clear();
+    _customerNameController.clear();
+    _customerPhoneController.clear();
+    _tableController.clear();
+    _notesController.clear();
+    setState(() {
+      _tableNumber = null;
+      _customer = null;
+      _orderNotes = null;
+    });
+  }
+
+  void _printKOT(List<OrderItem> items) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('KOT sent to kitchen printer!')),
+    );
+  }
+}
+
+// Simple Menu Screen
+class MenuScreen extends ConsumerWidget {
+  const MenuScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final menuItems = ref.watch(menuNotifierProvider);
+    final settings = ref.watch(settingsProvider);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Menu Management'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add),
+            onPressed: () => _showAddItemDialog(context, ref),
+          ),
+        ],
+      ),
+      body: ListView.builder(
+        padding: const EdgeInsets.all(8),
+        itemCount: menuItems.length,
+        itemBuilder: (context, index) {
+          final item = menuItems[index];
+          return Card(
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: item.isAvailable ? Colors.green : Colors.red,
+                child: Icon(
+                  _getIconForCategory(item.category),
+                  color: Colors.white,
+                ),
+              ),
+              title: Text(item.name),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(formatIndianCurrency(settings.currency, item.price)),
+                  Text('Stock: ${item.stockQuantity}'),
+                ],
+              ),
+              trailing: PopupMenuButton(
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'edit',
+                    child: ListTile(
+                      leading: Icon(Icons.edit),
+                      title: Text('Edit'),
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'delete',
+                    child: ListTile(
+                      leading: Icon(Icons.delete, color: Colors.red),
+                      title: Text('Delete'),
+                    ),
+                  ),
+                ],
+                onSelected: (value) {
+                  switch (value) {
+                    case 'edit':
+                      _showEditItemDialog(context, ref, item);
+                      break;
+                    case 'delete':
+                      _showDeleteDialog(context, ref, item);
+                      break;
+                  }
+                },
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  IconData _getIconForCategory(String category) {
+    switch (category) {
+      case 'Main':
+        return Icons.restaurant;
+      case 'Sides':
+        return Icons.food_bank;
+      case 'Drinks':
+        return Icons.local_drink;
+      default:
+        return Icons.fastfood;
+    }
+  }
+
+  void _showAddItemDialog(BuildContext context, WidgetRef ref) {
+    _showItemDialog(context, ref, null);
+  }
+
+  void _showEditItemDialog(BuildContext context, WidgetRef ref, MenuItem item) {
+    _showItemDialog(context, ref, item);
+  }
+
+  void _showItemDialog(BuildContext context, WidgetRef ref, MenuItem? item) {
+    final nameController = TextEditingController(text: item?.name ?? '');
+    final priceController = TextEditingController(text: item?.price.toString() ?? '');
+    final costController = TextEditingController(text: item?.costPrice.toString() ?? '');
+    final stockController = TextEditingController(text: item?.stockQuantity.toString() ?? '10');
+    String selectedCategory = item?.category ?? 'Main';
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Text(item == null ? 'Add Menu Item' : 'Edit Menu Item'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(labelText: 'Item Name'),
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  value: selectedCategory,
+                  decoration: const InputDecoration(labelText: 'Category'),
+                  items: ['Main', 'Sides', 'Drinks'].map((category) {
+                    return DropdownMenuItem(value: category, child: Text(category));
+                  }).toList(),
+                  onChanged: (value) => setState(() => selectedCategory = value!),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: costController,
+                  decoration: const InputDecoration(labelText: 'Cost Price'),
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: priceController,
+                  decoration: const InputDecoration(labelText: 'Selling Price'),
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: stockController,
+                  decoration: const InputDecoration(labelText: 'Stock Quantity'),
+                  keyboardType: TextInputType.number,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (nameController.text.isNotEmpty && priceController.text.isNotEmpty) {
+                  final newItem = MenuItem(
+                    id: item?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
+                    name: nameController.text,
+                    price: double.tryParse(priceController.text) ?? 0,
+                    costPrice: double.tryParse(costController.text) ?? 0,
+                    category: selectedCategory,
+                    stockQuantity: int.tryParse(stockController.text) ?? 10,
+                  );
+
+                  if (item == null) {
+                    ref.read(menuNotifierProvider.notifier).addItem(newItem);
+                  } else {
+                    ref.read(menuNotifierProvider.notifier).updateItem(newItem);
+                  }
+                  
+                  Navigator.of(context).pop();
+                }
+              },
+              child: Text(item == null ? 'Add' : 'Update'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDeleteDialog(BuildContext context, WidgetRef ref, MenuItem item) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Item'),
+        content: Text('Are you sure you want to delete "${item.name}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              ref.read(menuNotifierProvider.notifier).removeItem(item.id);
+              Navigator.of(context).pop();
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Reports Screen with Date Filtering
+class ReportsScreen extends ConsumerStatefulWidget {
+  const ReportsScreen({super.key});
+
+  @override
+  ConsumerState<ReportsScreen> createState() => _ReportsScreenState();
+}
+
+class _ReportsScreenState extends ConsumerState<ReportsScreen> {
+  DateTime _startDate = DateTime.now().subtract(const Duration(days: 7));
+  DateTime _endDate = DateTime.now();
+  String _selectedPeriod = 'Last 7 Days';
+
+  @override
+  Widget build(BuildContext context) {
+    final allOrders = ref.watch(ordersProvider);
+    final settings = ref.watch(settingsProvider);
+    
+    // Filter orders by date range
+    final filteredOrders = allOrders.where((order) {
+      return order.createdAt.isAfter(_startDate.subtract(const Duration(days: 1))) &&
+             order.createdAt.isBefore(_endDate.add(const Duration(days: 1)));
+    }).toList();
+    
+    final totalSales = filteredOrders.fold(0.0, (sum, order) => sum + order.total);
+    final totalOrders = filteredOrders.length;
+    final averageOrderValue = totalOrders > 0 ? totalSales / totalOrders : 0.0;
+
+    final isMobile = MediaQuery.of(context).size.width < 768;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Reports'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.date_range),
+            onPressed: () => _showDateRangePicker(context),
+          ),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            // Date Filter Card
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Report Period:', style: TextStyle(fontWeight: FontWeight.bold)),
+                        TextButton(
+                          onPressed: () => _showDateRangePicker(context),
+                          child: const Text('Change Dates'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('From: ${DateFormat('dd/MM/yyyy').format(_startDate)}'),
+                        Text('To: ${DateFormat('dd/MM/yyyy').format(_endDate)}'),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        _buildPeriodButton('Today'),
+                        _buildPeriodButton('Last 7 Days'),
+                        _buildPeriodButton('Last 30 Days'),
+                        _buildPeriodButton('This Month'),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Summary Cards
+            isMobile ? _buildMobileSummaryCards(settings, totalSales, totalOrders, averageOrderValue)
+                     : _buildDesktopSummaryCards(settings, totalSales, totalOrders, averageOrderValue),
+            const SizedBox(height: 20),
+            // Recent Orders Header
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Orders (${filteredOrders.length})', 
+                     style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                if (filteredOrders.isNotEmpty)
+                  Text('Total: ${formatIndianCurrency(settings.currency, totalSales)}',
+                       style: const TextStyle(fontSize: 14, color: Colors.green, fontWeight: FontWeight.bold)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            // Orders List
+            Expanded(
+              child: filteredOrders.isEmpty
+                  ? const Center(child: Text('No orders found for selected period'))
+                  : ListView.builder(
+                      itemCount: filteredOrders.length,
+                      itemBuilder: (context, index) {
+                        final order = filteredOrders.reversed.toList()[index];
+                        return Card(
+                          child: ListTile(
+                            title: Text('Order #${order.id.substring(order.id.length - 6)}'),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('${order.type} - ${order.items.length} items'),
+                                if (order.tableNumber != null)
+                                  Text('Table: ${order.tableNumber}'),
+                                if (order.customer != null)
+                                  Text('Customer: ${order.customer!.name}'),
+                              ],
+                            ),
+                            trailing: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  formatIndianCurrency(settings.currency, order.total),
+                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                Text(
+                                  DateFormat('dd/MM HH:mm').format(order.createdAt),
+                                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: _getStatusColor(order.status),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    order.status,
+                                    style: const TextStyle(color: Colors.white, fontSize: 10),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMobileSummaryCards(AppSettings settings, double totalSales, int totalOrders, double averageOrderValue) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: Column(
+                    children: [
+                      const Icon(Icons.monetization_on, size: 24, color: Colors.green),
+                      const SizedBox(height: 4),
+                      Text(
+                        formatIndianCurrency(settings.currency, totalSales),
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                      const Text('Total Sales', style: TextStyle(fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Expanded(
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: Column(
+                    children: [
+                      const Icon(Icons.receipt_long, size: 24, color: Colors.blue),
+                      const SizedBox(height: 4),
+                      Text(
+                        totalOrders.toString(),
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                      const Text('Total Orders', style: TextStyle(fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.calculate, size: 24, color: Colors.orange),
+                const SizedBox(width: 8),
+                Column(
+                  children: [
+                    Text(
+                      formatIndianCurrency(settings.currency, averageOrderValue),
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    const Text('Average Order', style: TextStyle(fontSize: 12)),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDesktopSummaryCards(AppSettings settings, double totalSales, int totalOrders, double averageOrderValue) {
+    return Row(
+      children: [
+        Expanded(
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  const Icon(Icons.monetization_on, size: 32, color: Colors.green),
+                  const SizedBox(height: 8),
+                  Text(
+                    formatIndianCurrency(settings.currency, totalSales),
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  const Text('Total Sales'),
+                ],
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  const Icon(Icons.receipt_long, size: 32, color: Colors.blue),
+                  const SizedBox(height: 8),
+                  Text(
+                    totalOrders.toString(),
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  const Text('Total Orders'),
+                ],
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  const Icon(Icons.calculate, size: 32, color: Colors.orange),
+                  const SizedBox(height: 8),
+                  Text(
+                    formatIndianCurrency(settings.currency, averageOrderValue),
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  const Text('Avg Order'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPeriodButton(String period) {
+    final isSelected = _selectedPeriod == period;
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        child: ElevatedButton(
+          onPressed: () => _setPeriod(period),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: isSelected ? Theme.of(context).primaryColor : Colors.grey[200],
+            foregroundColor: isSelected ? Colors.white : Colors.black87,
+            padding: const EdgeInsets.symmetric(vertical: 8),
+          ),
+          child: Text(period, style: const TextStyle(fontSize: 11)),
+        ),
+      ),
+    );
+  }
+
+  void _setPeriod(String period) {
+    setState(() {
+      _selectedPeriod = period;
+      final now = DateTime.now();
+      
+      switch (period) {
+        case 'Today':
+          _startDate = DateTime(now.year, now.month, now.day);
+          _endDate = now;
+          break;
+        case 'Last 7 Days':
+          _startDate = now.subtract(const Duration(days: 7));
+          _endDate = now;
+          break;
+        case 'Last 30 Days':
+          _startDate = now.subtract(const Duration(days: 30));
+          _endDate = now;
+          break;
+        case 'This Month':
+          _startDate = DateTime(now.year, now.month, 1);
+          _endDate = now;
+          break;
+      }
+    });
+  }
+
+  void _showDateRangePicker(BuildContext context) async {
+    final DateTimeRange? picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      initialDateRange: DateTimeRange(start: _startDate, end: _endDate),
+    );
+    
+    if (picked != null) {
+      setState(() {
+        _startDate = picked.start;
+        _endDate = picked.end;
+        _selectedPeriod = 'Custom';
+      });
+    }
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'pending':
+        return Colors.orange;
+      case 'preparing':
+        return Colors.blue;
+      case 'ready':
+        return Colors.green;
+      case 'completed':
+        return Colors.grey;
+      case 'cancelled':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
+  }
+}
+
+// Simple Settings Screen
+class SettingsScreen extends ConsumerWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(settingsProvider);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Settings'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+      ),
+      body: ListView(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.store),
+            title: const Text('Store Information'),
+            subtitle: Text(settings.storeName),
+            onTap: () => _showStoreInfoDialog(context, ref, settings),
+          ),
+          ListTile(
+            leading: const Icon(Icons.currency_exchange),
+            title: const Text('Currency'),
+            subtitle: Text(settings.currency),
+            onTap: () => _showCurrencyDialog(context, ref, settings),
+          ),
+          ListTile(
+            leading: const Icon(Icons.percent),
+            title: const Text('GST Rate'),
+            subtitle: Text('${settings.taxRate}%'),
+            onTap: () => _showTaxRateDialog(context, ref, settings),
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.print),
+            title: const Text('Printer Settings'),
+            subtitle: Text(settings.printerConnected ? 'Connected' : 'Not Connected'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.receipt),
+            title: const Text('Auto KOT Printing'),
+            trailing: Switch(
+              value: settings.autoKotPrint,
+              onChanged: (value) {
+                // Update auto KOT print setting
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showStoreInfoDialog(BuildContext context, WidgetRef ref, AppSettings settings) {
+    final nameController = TextEditingController(text: settings.storeName);
+    final addressController = TextEditingController(text: settings.address);
+    final phoneController = TextEditingController(text: settings.phone);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Store Information'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(labelText: 'Store Name'),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: addressController,
+              decoration: const InputDecoration(labelText: 'Address'),
+              maxLines: 2,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: phoneController,
+              decoration: const InputDecoration(labelText: 'Phone'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              ref.read(settingsProvider.notifier).updateStoreInfo(
+                nameController.text,
+                addressController.text,
+                phoneController.text,
+              );
+              Navigator.of(context).pop();
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showCurrencyDialog(BuildContext context, WidgetRef ref, AppSettings settings) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Select Currency'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: ['₹', '\$', '€', '£', '¥'].map((currency) {
+            return ListTile(
+              title: Text(currency),
+              leading: Radio<String>(
+                value: currency,
+                groupValue: settings.currency,
+                onChanged: (value) {
+                  if (value != null) {
+                    ref.read(settingsProvider.notifier).updateCurrency(value);
+                    Navigator.of(context).pop();
+                  }
+                },
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  void _showTaxRateDialog(BuildContext context, WidgetRef ref, AppSettings settings) {
+    final controller = TextEditingController(text: settings.taxRate.toString());
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('GST Rate'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(labelText: 'GST Rate (%)'),
+          keyboardType: TextInputType.number,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final rate = double.tryParse(controller.text) ?? 10.0;
+              ref.read(settingsProvider.notifier).updateTaxRate(rate);
+              Navigator.of(context).pop();
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+}

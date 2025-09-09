@@ -1,0 +1,25 @@
+# This file contains analysis options for Dart code.
+analyzer:
+  errors:
+    unused_import: ignore
+    dead_code: ignore
+  strong-mode:
+    implicit-casts: false
+    implicit-dynamic: false
+
+linter:
+  rules:
+    - prefer_single_quotes
+    - always_declare_return_types
+    - always_specify_types
+    - avoid_print
+    - prefer_const_constructors
+    - unnecessary_new
+    - lines_longer_than_80_chars: false
+    - type_annotate_public_apis
+    - public_member_api_docs
+    - prefer_final_fields
+    - avoid_annotating_with_dynamic
+    - prefer_is_empty
+    - prefer_contains
+    - use_key_in_widget_constructors

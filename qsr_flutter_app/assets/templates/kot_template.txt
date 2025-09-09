@@ -1,0 +1,29 @@
+================================
+{{store_name}}
+================================
+
+KITCHEN ORDER TICKET
+
+Order Type: {{order_type}}
+{{token_label}}: {{token_or_table}}
+Server: {{server}}
+Time: {{time}}
+
+================================
+
+ITEMS:
+
+{{#items}}
+{{quantity}}x {{name}}
+{{#notes}}
+  Note: {{notes}}
+{{/notes}}
+
+{{/items}}
+
+================================
+
+Printed: {{printed_time}}
+Device: {{device_id}}
+
+================================

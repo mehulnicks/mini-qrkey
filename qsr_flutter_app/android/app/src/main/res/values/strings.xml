@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">Quick Service Restaurant</string>
+    <string name="menu_title">Menu</string>
+    <string name="order_title">Order</string>
+    <string name="printer_setup_title">Printer Setup</string>
+    <string name="sync_title">Sync</string>
+    <string name="update_menu_item">Update Menu Item</string>
+    <string name="place_order">Place Order</string>
+    <string name="generate_kot">Generate KOT</string>
+    <string name="bluetooth_printer">Bluetooth Printer</string>
+    <string name="no_orders">No orders available.</string>
+    <string name="order_success">Order placed successfully!</string>
+    <string name="kot_generated">KOT generated successfully!</string>
+    <string name="error_occurred">An error occurred. Please try again.</string>
+</resources>
