@@ -1,9 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
-import 'package:esc_pos_utils/esc_pos_utils.dart';
-import 'dart:typed_data';
-import 'dart:convert';
 import 'dart:convert';
 import 'kot_screen.dart';
 
@@ -428,104 +424,6 @@ class OrderItem {
 
 enum OrderType { dineIn, takeaway, delivery }
 enum OrderStatus { pending, confirmed, preparing, ready, completed, cancelled }
-
-// Bluetooth Printer Management
-class BluetoothPrinterManager {
-  static BluetoothConnection? _connection;
-  static bool get isConnected => _connection?.isConnected ?? false;
-  
-  static Future<List<BluetoothDevice>> getAvailableDevices() async {
-    try {
-      // Get bonded devices
-      final bondedDevices = await FlutterBluetoothSerial.instance.getBondedDevices();
-      return bondedDevices.where((device) => 
-        device.name?.toLowerCase().contains('printer') == true ||
-        device.name?.toLowerCase().contains('pos') == true ||
-        device.name?.toLowerCase().contains('thermal') == true
-      ).toList();
-    } catch (e) {
-      print('Error getting bonded devices: $e');
-      return [];
-    }
-  }
-  
-  static Future<bool> connectToDevice(BluetoothDevice device) async {
-    try {
-      if (_connection?.isConnected == true) {
-        await _connection?.close();
-      }
-      
-      _connection = await BluetoothConnection.toAddress(device.address);
-      return _connection?.isConnected ?? false;
-    } catch (e) {
-      print('Error connecting to printer: $e');
-      return false;
-    }
-  }
-  
-  static Future<void> disconnect() async {
-    try {
-      await _connection?.close();
-      _connection = null;
-    } catch (e) {
-      print('Error disconnecting from printer: $e');
-    }
-  }
-  
-  static Future<bool> printKOT(String kotContent) async {
-    if (!isConnected) {
-      return false;
-    }
-    
-    try {
-      // Create ESC/POS commands
-      final profile = await CapabilityProfile.load();
-      final generator = Generator(PaperSize.mm58, profile);
-      
-      List<int> bytes = [];
-      
-      // Print header
-      bytes += generator.setStyles(const PosStyles(align: PosAlign.center, bold: true));
-      bytes += generator.text('KITCHEN ORDER TICKET');
-      bytes += generator.text('================================');
-      bytes += generator.feed(1);
-      
-      // Print KOT content
-      final lines = kotContent.split('\n');
-      for (String line in lines) {
-        if (line.trim().isEmpty) {
-          bytes += generator.feed(1);
-        } else if (line.contains('===')) {
-          bytes += generator.setStyles(const PosStyles(align: PosAlign.center));
-          bytes += generator.text(line);
-        } else if (line.contains('KOT #:') || line.contains('Date:') || line.contains('Time:')) {
-          bytes += generator.setStyles(const PosStyles(align: PosAlign.left, bold: true));
-          bytes += generator.text(line);
-        } else if (line.contains('ITEMS:')) {
-          bytes += generator.setStyles(const PosStyles(align: PosAlign.center, bold: true));
-          bytes += generator.text(line);
-          bytes += generator.text('--------------------------------');
-        } else {
-          bytes += generator.setStyles(const PosStyles(align: PosAlign.left));
-          bytes += generator.text(line);
-        }
-      }
-      
-      // Cut paper
-      bytes += generator.feed(3);
-      bytes += generator.cut();
-      
-      // Send to printer
-      _connection?.output.add(Uint8List.fromList(bytes));
-      await _connection?.output.allSent;
-      
-      return true;
-    } catch (e) {
-      print('Error printing KOT: $e');
-      return false;
-    }
-  }
-}
 enum PaymentStatus { pending, partial, completed, refunded }
 enum PaymentMethod { cash, card, upi, online }
 
@@ -739,13 +637,13 @@ class MenuNotifier extends StateNotifier<List<MenuItem>> {
   MenuNotifier() : super(_defaultMenuItems);
 
   static final List<MenuItem> _defaultMenuItems = [
-    MenuItem(id: '1', name: 'Margherita Pizza', dineInPrice: 299, takeawayPrice: 279, category: 'Pizza'),
-    MenuItem(id: '2', name: 'Chicken Burger', dineInPrice: 189, takeawayPrice: 169, category: 'Burgers'),
-    MenuItem(id: '3', name: 'Caesar Salad', dineInPrice: 149, takeawayPrice: 139, category: 'Salads'),
-    MenuItem(id: '4', name: 'Coca Cola', dineInPrice: 49, takeawayPrice: 45, category: 'Beverages'),
-    MenuItem(id: '5', name: 'French Fries', dineInPrice: 99, takeawayPrice: 89, category: 'Sides'),
-    MenuItem(id: '6', name: 'Paneer Tikka', dineInPrice: 249, takeawayPrice: 229, category: 'Indian'),
-    MenuItem(id: '7', name: 'Masala Dosa', dineInPrice: 129, takeawayPrice: 119, category: 'South Indian'),
+    MenuItem(id: '1', name: 'Margherita Pizza', dineInPrice: 299, takeawayPrice: 279, deliveryPrice: 319, category: 'Pizza'),
+    MenuItem(id: '2', name: 'Chicken Burger', dineInPrice: 189, takeawayPrice: 169, deliveryPrice: 199, category: 'Burgers'),
+    MenuItem(id: '3', name: 'Caesar Salad', dineInPrice: 149, takeawayPrice: 139, deliveryPrice: 159, category: 'Salads'),
+    MenuItem(id: '4', name: 'Coca Cola', dineInPrice: 49, takeawayPrice: 45, deliveryPrice: 55, category: 'Beverages'),
+    MenuItem(id: '5', name: 'French Fries', dineInPrice: 99, takeawayPrice: 89, deliveryPrice: 109, category: 'Sides'),
+    MenuItem(id: '6', name: 'Paneer Tikka', dineInPrice: 249, takeawayPrice: 229, deliveryPrice: 269, category: 'Indian'),
+    MenuItem(id: '7', name: 'Masala Dosa', dineInPrice: 129, takeawayPrice: 119, deliveryPrice: 139, category: 'South Indian'),
   ];
 
   void addMenuItem(MenuItem item) {
@@ -940,7 +838,6 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   final List<Widget> _screens = [
     const OrderPlacementScreen(),
     const OrderHistoryScreen(),
-    const MenuScreen(),
     const KOTScreen(),
     const ReportsScreen(),
     const SettingsScreen(),
@@ -965,10 +862,6 @@ class _MainScreenState extends ConsumerState<MainScreen> {
               BottomNavigationBarItem(
                 icon: const Icon(Icons.receipt_long),
                 label: l10n(ref, 'orders'),
-              ),
-              BottomNavigationBarItem(
-                icon: const Icon(Icons.restaurant_menu),
-                label: l10n(ref, 'menu'),
               ),
               BottomNavigationBarItem(
                 icon: const Icon(Icons.kitchen),
@@ -1090,6 +983,10 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                       ButtonSegment(
                         value: OrderType.takeaway,
                         label: Text('🥡 Takeaway'),
+                      ),
+                      ButtonSegment(
+                        value: OrderType.delivery,
+                        label: Text('🏠 Home Delivery'),
                       ),
                     ],
                     selected: {orderType},
@@ -1917,12 +1814,12 @@ Total Items: ${items.fold(0, (sum, item) => sum + item.quantity)}
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: BluetoothPrinterManager.isConnected ? Colors.green : Colors.orange,
+                color: Colors.green,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Text(
-                BluetoothPrinterManager.isConnected ? 'PRINTER CONNECTED' : 'NO PRINTER',
-                style: const TextStyle(
+              child: const Text(
+                'PRINTED',
+                style: TextStyle(
                   color: Colors.white,
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
@@ -1954,53 +1851,23 @@ Total Items: ${items.fold(0, (sum, item) => sum + item.quantity)}
           ),
         ),
         actions: [
-          if (!BluetoothPrinterManager.isConnected)
-            ElevatedButton.icon(
-              onPressed: () => _showBluetoothPrinterDialog(),
-              icon: const Icon(Icons.bluetooth),
-              label: const Text('Connect Printer'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue,
-                foregroundColor: Colors.white,
-              ),
-            ),
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Close'),
           ),
           ElevatedButton.icon(
-            onPressed: () async {
-              if (BluetoothPrinterManager.isConnected) {
-                // Print via Bluetooth
-                final success = await BluetoothPrinterManager.printKOT(kotContent);
-                if (success) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('KOT printed successfully!'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Failed to print KOT. Check printer connection.'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              } else {
-                // Show preview only
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Connect a Bluetooth printer to print KOT'),
-                    backgroundColor: Colors.orange,
-                  ),
-                );
-              }
+            onPressed: () {
+              // In a real implementation, this would send to printer
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('KOT sent to kitchen printer'),
+                  backgroundColor: Colors.green,
+                ),
+              );
               Navigator.pop(context);
             },
             icon: const Icon(Icons.print),
-            label: Text(BluetoothPrinterManager.isConnected ? 'Print KOT' : 'Preview Only'),
+            label: const Text('Print Again'),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFFF9933),
               foregroundColor: Colors.white,
@@ -2014,152 +1881,6 @@ Total Items: ${items.fold(0, (sum, item) => sum + item.quantity)}
     print('=== KOT PRINTED ===');
     print(kotContent);
     print('==================');
-  }
-
-  void _showBluetoothPrinterDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.bluetooth, color: Colors.blue),
-            SizedBox(width: 8),
-            Text('Connect Bluetooth Printer'),
-          ],
-        ),
-        content: Container(
-          width: double.maxFinite,
-          height: 300,
-          child: FutureBuilder<List<BluetoothDevice>>(
-            future: BluetoothPrinterManager.getAvailableDevices(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              
-              if (snapshot.hasError) {
-                return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error, color: Colors.red, size: 48),
-                      const SizedBox(height: 16),
-                      Text('Error: ${snapshot.error}'),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          _showBluetoothPrinterDialog();
-                        },
-                        child: const Text('Retry'),
-                      ),
-                    ],
-                  ),
-                );
-              }
-              
-              final devices = snapshot.data ?? [];
-              
-              if (devices.isEmpty) {
-                return const Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.bluetooth_disabled, size: 48, color: Colors.grey),
-                      SizedBox(height: 16),
-                      Text(
-                        'No paired Bluetooth printers found',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 16),
-                      ),
-                      SizedBox(height: 8),
-                      Text(
-                        'Please pair your thermal printer in Bluetooth settings first',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    ],
-                  ),
-                );
-              }
-              
-              return ListView.builder(
-                itemCount: devices.length,
-                itemBuilder: (context, index) {
-                  final device = devices[index];
-                  return Card(
-                    child: ListTile(
-                      leading: const Icon(Icons.print, color: Color(0xFFFF9933)),
-                      title: Text(device.name ?? 'Unknown Printer'),
-                      subtitle: Text(device.address),
-                      trailing: const Icon(Icons.arrow_forward_ios),
-                      onTap: () async {
-                        Navigator.pop(context);
-                        
-                        // Show connecting dialog
-                        showDialog(
-                          context: context,
-                          barrierDismissible: false,
-                          builder: (context) => const AlertDialog(
-                            content: Row(
-                              children: [
-                                CircularProgressIndicator(),
-                                SizedBox(width: 20),
-                                Text('Connecting to printer...'),
-                              ],
-                            ),
-                          ),
-                        );
-                        
-                        // Connect to printer
-                        final success = await BluetoothPrinterManager.connectToDevice(device);
-                        Navigator.pop(context); // Close connecting dialog
-                        
-                        if (success) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Connected to ${device.name}'),
-                              backgroundColor: Colors.green,
-                            ),
-                          );
-                        } else {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Failed to connect to ${device.name}'),
-                              backgroundColor: Colors.red,
-                            ),
-                          );
-                        }
-                      },
-                    ),
-                  );
-                },
-              );
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          if (BluetoothPrinterManager.isConnected)
-            TextButton(
-              onPressed: () async {
-                await BluetoothPrinterManager.disconnect();
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Printer disconnected'),
-                    backgroundColor: Colors.orange,
-                  ),
-                );
-              },
-              child: const Text('Disconnect', style: TextStyle(color: Colors.red)),
-            ),
-        ],
-      ),
-    );
   }
 }
 
@@ -2387,6 +2108,7 @@ class OrderHistoryScreen extends ConsumerWidget {
                 Icon(
                   order.type == OrderType.dineIn ? Icons.restaurant 
                     : order.type == OrderType.takeaway ? Icons.takeout_dining 
+                    : order.type == OrderType.delivery ? Icons.delivery_dining
                     : Icons.delivery_dining,
                   size: 16,
                   color: Colors.grey[600],
@@ -3218,6 +2940,48 @@ class SettingsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 16),
 
+            // Menu Management Card
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.restaurant_menu, color: Color(0xFFFF9933)),
+                        const SizedBox(width: 8),
+                        Text(l10n(ref, 'menu'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    ListTile(
+                      leading: const Icon(Icons.add_circle, color: Color(0xFFFF9933)),
+                      title: const Text('Add Menu Item'),
+                      subtitle: const Text('Add new items to your menu'),
+                      trailing: const Icon(Icons.arrow_forward_ios),
+                      onTap: () => _showAddItemDialog(context, ref),
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.edit, color: Color(0xFFFF9933)),
+                      title: const Text('Manage Menu Items'),
+                      subtitle: const Text('Edit existing menu items'),
+                      trailing: const Icon(Icons.arrow_forward_ios),
+                      onTap: () => _showMenuManagementDialog(context, ref),
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.category, color: Color(0xFFFF9933)),
+                      title: const Text('Categories'),
+                      subtitle: const Text('Manage menu categories'),
+                      trailing: const Icon(Icons.arrow_forward_ios),
+                      onTap: () => _showCategoriesDialog(context, ref),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
             // Financial Settings Card
             Card(
               child: Padding(
@@ -3558,6 +3322,358 @@ class SettingsScreen extends ConsumerWidget {
               }
             },
             child: const Text('Update'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Menu Management Methods
+  void _showAddItemDialog(BuildContext context, WidgetRef ref) {
+    final nameController = TextEditingController();
+    final dineInPriceController = TextEditingController();
+    final takeawayPriceController = TextEditingController();
+    final deliveryPriceController = TextEditingController();
+    final categoryController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add Menu Item'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(labelText: 'Item Name*'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: categoryController,
+                  decoration: const InputDecoration(labelText: 'Category'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: dineInPriceController,
+                  decoration: const InputDecoration(labelText: 'Dine In Price*', prefixText: '₹ '),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: takeawayPriceController,
+                  decoration: const InputDecoration(labelText: 'Takeaway Price', prefixText: '₹ '),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: deliveryPriceController,
+                  decoration: const InputDecoration(labelText: 'Delivery Price', prefixText: '₹ '),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  '* Required fields\nLeave takeaway/delivery price empty to use dine-in price',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (nameController.text.isNotEmpty && dineInPriceController.text.isNotEmpty) {
+                final dineInPrice = double.tryParse(dineInPriceController.text) ?? 0;
+                final item = MenuItem(
+                  id: DateTime.now().millisecondsSinceEpoch.toString(),
+                  name: nameController.text,
+                  dineInPrice: dineInPrice,
+                  takeawayPrice: double.tryParse(takeawayPriceController.text) ?? dineInPrice,
+                  deliveryPrice: double.tryParse(deliveryPriceController.text),
+                  category: categoryController.text.isEmpty ? 'General' : categoryController.text,
+                );
+                ref.read(menuProvider.notifier).addMenuItem(item);
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('${item.name} added to menu')),
+                );
+              }
+            },
+            child: const Text('Add Item'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showMenuManagementDialog(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        child: Container(
+          width: double.maxFinite,
+          height: MediaQuery.of(context).size.height * 0.8,
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Menu Management', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+              const Divider(),
+              Expanded(
+                child: Consumer(
+                  builder: (context, ref, child) {
+                    final menuItems = ref.watch(menuProvider);
+                    final settings = ref.watch(settingsProvider);
+                    
+                    if (menuItems.isEmpty) {
+                      return const Center(
+                        child: Text('No menu items available\nTap + to add items'),
+                      );
+                    }
+                    
+                    return ListView.builder(
+                      itemCount: menuItems.length,
+                      itemBuilder: (context, index) {
+                        final item = menuItems[index];
+                        return Card(
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        item.name,
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                      ),
+                                    ),
+                                    Switch(
+                                      value: item.isAvailable,
+                                      activeColor: const Color(0xFFFF9933),
+                                      onChanged: (value) {
+                                        final updatedItem = MenuItem(
+                                          id: item.id,
+                                          name: item.name,
+                                          dineInPrice: item.dineInPrice,
+                                          takeawayPrice: item.takeawayPrice,
+                                          deliveryPrice: item.deliveryPrice,
+                                          category: item.category,
+                                          isAvailable: value,
+                                        );
+                                        ref.read(menuProvider.notifier).updateMenuItem(updatedItem);
+                                      },
+                                    ),
+                                  ],
+                                ),
+                                Text(
+                                  item.category,
+                                  style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text('🍽️ Dine In: ${formatIndianCurrency(settings.currency, item.dineInPrice)}'),
+                                          Text('🥡 Takeaway: ${formatIndianCurrency(settings.currency, item.takeawayPrice)}'),
+                                          if (item.deliveryPrice != null)
+                                            Text('🏠 Delivery: ${formatIndianCurrency(settings.currency, item.deliveryPrice!)}')
+                                          else
+                                            Text('🏠 Delivery: ${formatIndianCurrency(settings.currency, item.takeawayPrice)}'),
+                                        ],
+                                      ),
+                                    ),
+                                    Column(
+                                      children: [
+                                        IconButton(
+                                          icon: const Icon(Icons.edit, color: Color(0xFFFF9933)),
+                                          onPressed: () => _showEditItemDialog(context, ref, item),
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(Icons.delete, color: Colors.red),
+                                          onPressed: () => _showDeleteConfirmDialog(context, ref, item),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showEditItemDialog(BuildContext context, WidgetRef ref, MenuItem item) {
+    final nameController = TextEditingController(text: item.name);
+    final dineInPriceController = TextEditingController(text: item.dineInPrice.toString());
+    final takeawayPriceController = TextEditingController(text: item.takeawayPrice.toString());
+    final deliveryPriceController = TextEditingController(text: item.deliveryPrice?.toString() ?? '');
+    final categoryController = TextEditingController(text: item.category);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Edit ${item.name}'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(labelText: 'Item Name*'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: categoryController,
+                  decoration: const InputDecoration(labelText: 'Category'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: dineInPriceController,
+                  decoration: const InputDecoration(labelText: 'Dine In Price*', prefixText: '₹ '),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: takeawayPriceController,
+                  decoration: const InputDecoration(labelText: 'Takeaway Price*', prefixText: '₹ '),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: deliveryPriceController,
+                  decoration: const InputDecoration(labelText: 'Delivery Price', prefixText: '₹ '),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (nameController.text.isNotEmpty && 
+                  dineInPriceController.text.isNotEmpty && 
+                  takeawayPriceController.text.isNotEmpty) {
+                final updatedItem = MenuItem(
+                  id: item.id,
+                  name: nameController.text,
+                  dineInPrice: double.tryParse(dineInPriceController.text) ?? 0,
+                  takeawayPrice: double.tryParse(takeawayPriceController.text) ?? 0,
+                  deliveryPrice: deliveryPriceController.text.isNotEmpty 
+                      ? double.tryParse(deliveryPriceController.text)
+                      : null,
+                  category: categoryController.text.isEmpty ? 'General' : categoryController.text,
+                  isAvailable: item.isAvailable,
+                );
+                ref.read(menuProvider.notifier).updateMenuItem(updatedItem);
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('${updatedItem.name} updated')),
+                );
+              }
+            },
+            child: const Text('Update'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDeleteConfirmDialog(BuildContext context, WidgetRef ref, MenuItem item) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Item'),
+        content: Text('Are you sure you want to delete "${item.name}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              ref.read(menuProvider.notifier).removeMenuItem(item.id);
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('${item.name} removed from menu')),
+              );
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showCategoriesDialog(BuildContext context, WidgetRef ref) {
+    final menuItems = ref.read(menuProvider);
+    final categories = menuItems.map((item) => item.category).toSet().toList();
+    categories.sort();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Menu Categories'),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 300,
+          child: categories.isEmpty
+              ? const Center(child: Text('No categories found'))
+              : ListView.builder(
+                  itemCount: categories.length,
+                  itemBuilder: (context, index) {
+                    final category = categories[index];
+                    final itemCount = menuItems.where((item) => item.category == category).length;
+                    return ListTile(
+                      leading: const Icon(Icons.category, color: Color(0xFFFF9933)),
+                      title: Text(category),
+                      subtitle: Text('$itemCount item${itemCount != 1 ? 's' : ''}'),
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
           ),
         ],
       ),
