@@ -128,6 +128,20 @@ class AppLocalizations {
       'delivery_service_desc': 'Enable delivery orders with charges',
       'english': 'English',
       'hindi': 'Hindi',
+      // KOT Enhanced
+      'kot_summary': 'KOT Summary',
+      'print_kot_summary': 'Print KOT Summary',
+      'token': 'Token',
+      'table': 'Table',
+      'server': 'Server',
+      'device': 'Device',
+      'generated': 'Generated',
+      'metrics': 'Metrics',
+      'gross_sales': 'Gross Sales',
+      'avg_order': 'Avg Order',
+      'items_sold': 'Items Sold',
+      'top_items': 'Top Items',
+      'store': 'Store',
     },
     'hi': {
       'app_title': 'QSR प्रबंधन',
@@ -247,6 +261,20 @@ class AppLocalizations {
       'delivery_service_desc': 'शुल्क के साथ डिलीवरी ऑर्डर सक्षम करें',
       'english': 'अंग्रेजी',
       'hindi': 'हिंदी',
+      // KOT Enhanced
+      'kot_summary': 'KOT सारांश',
+      'print_kot_summary': 'KOT सारांश प्रिंट करें',
+      'token': 'टोकन',
+      'table': 'टेबल',
+      'server': 'सर्वर',
+      'device': 'डिवाइस',
+      'generated': 'जेनरेट किया गया',
+      'metrics': 'मेट्रिक्स',
+      'gross_sales': 'कुल बिक्री',
+      'avg_order': 'औसत ऑर्डर',
+      'items_sold': 'बेचे गए आइटम',
+      'top_items': 'टॉप आइटम',
+      'store': 'स्टोर',
     },
   };
   
@@ -836,11 +864,10 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   int _selectedIndex = 0;
 
   final List<Widget> _screens = [
-    const OrderPlacementScreen(),
-    const OrderHistoryScreen(),
-    const KOTScreen(),
-    const ReportsScreen(),
-    const SettingsScreen(),
+    const OrderPlacementScreen(), // Menu tab
+    const OrderHistoryScreen(), // Orders tab
+    const KOTScreen(), // KOT tab
+    const SettingsScreen(), // Settings tab (will include Reports)
   ];
 
   @override
@@ -856,8 +883,8 @@ class _MainScreenState extends ConsumerState<MainScreen> {
             selectedItemColor: const Color(0xFFFF9933),
             items: [
               BottomNavigationBarItem(
-                icon: const Icon(Icons.add_shopping_cart),
-                label: l10n(ref, 'place_order'),
+                icon: const Icon(Icons.restaurant_menu),
+                label: l10n(ref, 'menu'),
               ),
               BottomNavigationBarItem(
                 icon: const Icon(Icons.receipt_long),
@@ -866,10 +893,6 @@ class _MainScreenState extends ConsumerState<MainScreen> {
               BottomNavigationBarItem(
                 icon: const Icon(Icons.kitchen),
                 label: l10n(ref, 'kot'),
-              ),
-              BottomNavigationBarItem(
-                icon: const Icon(Icons.analytics),
-                label: l10n(ref, 'reports'),
               ),
               BottomNavigationBarItem(
                 icon: const Icon(Icons.settings),
@@ -927,7 +950,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(l10n(ref, 'new_order')),
+        title: Text(l10n(ref, 'menu')),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         elevation: 0,
         actions: [
@@ -966,8 +989,6 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                 // Order Type Selection with better styling
                 Row(
                   children: [
-                    Icon(Icons.restaurant, color: Colors.blue[700], size: 20),
-                    const SizedBox(width: 8),
                     const Text('Order Type:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
                   ],
                 ),
@@ -978,15 +999,15 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                     segments: const [
                       ButtonSegment(
                         value: OrderType.dineIn,
-                        label: Text('🍽️ Dine In'),
+                        label: Text('Dine In'),
                       ),
                       ButtonSegment(
                         value: OrderType.takeaway,
-                        label: Text('🥡 Takeaway'),
+                        label: Text('Takeaway'),
                       ),
                       ButtonSegment(
                         value: OrderType.delivery,
-                        label: Text('🏠 Home Delivery'),
+                        label: Text('Home Delivery'),
                       ),
                     ],
                     selected: {orderType},
@@ -1356,10 +1377,8 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                     const SizedBox(width: 16),
                     
                     // Place Order Button
-                    ElevatedButton.icon(
+                    ElevatedButton(
                       onPressed: () => _placeOrder(),
-                      icon: const Icon(Icons.restaurant, size: 18),
-                      label: Text(l10n(ref, 'place_order')),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.white,
                         foregroundColor: const Color(0xFFFF9933),
@@ -1368,6 +1387,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                         textStyle: const TextStyle(fontWeight: FontWeight.bold),
                       ),
+                      child: Text(l10n(ref, 'place_order')),
                     ),
                   ],
                 ),
@@ -1416,7 +1436,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                   const SizedBox(width: 12),
                   const Expanded(
                     child: Text(
-                      'Order Summary & Checkout',
+                      'Order Summary',
                       style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                     ),
                   ),
@@ -1631,7 +1651,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                     TextField(
                       controller: _notesController,
                       decoration: InputDecoration(
-                        hintText: 'Any special instructions for the kitchen...',
+                        hintText: 'Add special instructions...',
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
@@ -1782,24 +1802,15 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     final orderType = ref.read(orderTypeProvider);
     final now = DateTime.now();
     
-    // Create KOT content
-    final kotContent = '''
-================================
-       ${settings.businessName.toUpperCase()}
-================================
-KOT #: $orderId
-Date: ${now.day}/${now.month}/${now.year}
-Time: ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}
-Type: ${orderType.toString().split('.').last.toUpperCase()}
-${customer != null ? 'Customer: ${customer.name ?? 'N/A'}' : ''}
-${customer?.phone != null ? 'Phone: ${customer!.phone}' : ''}
---------------------------------
-ITEMS:
-${items.map((item) => '${item.quantity.toString().padLeft(2)} x ${item.menuItem.name}${item.specialInstructions != null ? '\n     Note: ${item.specialInstructions}' : ''}').join('\n')}
---------------------------------
-Total Items: ${items.fold(0, (sum, item) => sum + item.quantity)}
-================================
-    ''';
+    // Create KOT content with 58mm-friendly format
+    final kotContent = _formatKOTTicket(
+      settings.businessName,
+      orderId,
+      orderType,
+      customer,
+      items,
+      now,
+    );
 
     // Show KOT preview dialog
     showDialog(
@@ -1881,6 +1892,114 @@ Total Items: ${items.fold(0, (sum, item) => sum + item.quantity)}
     print('=== KOT PRINTED ===');
     print(kotContent);
     print('==================');
+  }
+
+  // Enhanced KOT Formatting Functions
+  String _formatKOTTicket(
+    String businessName,
+    String orderId,
+    OrderType orderType,
+    CustomerInfo? customer,
+    List<OrderItem> items,
+    DateTime timestamp,
+  ) {
+    final buffer = StringBuffer();
+    
+    // Header: Store name (bold), "KOT", token/table, orderType, server, timestamp
+    buffer.writeln('================================');
+    buffer.writeln('      ${businessName.toUpperCase()}');
+    buffer.writeln('          *** KOT ***');
+    buffer.writeln('================================');
+    
+    // Token/Order Info
+    buffer.writeln('Order ID: #${orderId.substring(orderId.length - 6)}');
+    if (customer?.name != null) {
+      buffer.writeln('Table: ${customer!.name}');
+    }
+    buffer.writeln('Type: ${orderType.toString().split('.').last.toUpperCase()}');
+    buffer.writeln('Server: Staff-01'); // Could be dynamic
+    buffer.writeln('Time: ${_formatKOTTimestamp(timestamp)}');
+    buffer.writeln('--------------------------------');
+    
+    // Body: Item lines (qty x name) + per-item notes
+    buffer.writeln('ITEMS:');
+    for (final item in items) {
+      buffer.writeln('${item.quantity.toString().padLeft(2)} x ${item.menuItem.name}');
+      if (item.specialInstructions != null && item.specialInstructions!.isNotEmpty) {
+        buffer.writeln('     >> ${item.specialInstructions}');
+      }
+    }
+    
+    // Footer: Separator line, deviceId/printed at
+    buffer.writeln('--------------------------------');
+    buffer.writeln('Total Items: ${items.fold(0, (sum, item) => sum + item.quantity)}');
+    buffer.writeln('Device: POS-Terminal-01');
+    buffer.writeln('Printed: ${_formatKOTTimestamp(DateTime.now())}');
+    buffer.writeln('================================');
+    
+    return buffer.toString();
+  }
+
+  String _formatKOTSummaryReport(
+    String dateRange,
+    List<Order> orders,
+    DateTime printTime,
+    String businessName,
+  ) {
+    final buffer = StringBuffer();
+    
+    // Header: "KOT Summary – <Range>" with printed timestamp
+    buffer.writeln('================================');
+    buffer.writeln('     KOT SUMMARY - $dateRange');
+    buffer.writeln('================================');
+    buffer.writeln('Generated: ${_formatKOTTimestamp(printTime)}');
+    buffer.writeln('--------------------------------');
+    
+    // Metrics: Orders, Gross Sales, Average Order, Items Sold
+    final totalOrders = orders.length;
+    final grossSales = orders.fold(0.0, (sum, order) => sum + order.grandTotal);
+    final averageOrder = totalOrders > 0 ? grossSales / totalOrders : 0.0;
+    final totalItems = orders.fold(0, (sum, order) => 
+      sum + order.items.fold(0, (itemSum, item) => itemSum + item.quantity));
+    
+    buffer.writeln('METRICS:');
+    buffer.writeln('Orders: $totalOrders');
+    buffer.writeln('Gross Sales: ₹${grossSales.toStringAsFixed(2)}');
+    buffer.writeln('Avg Order: ₹${averageOrder.toStringAsFixed(2)}');
+    buffer.writeln('Items Sold: $totalItems');
+    buffer.writeln('--------------------------------');
+    
+    // Top Items: name x qty
+    final Map<String, int> itemCounts = {};
+    for (final order in orders) {
+      for (final item in order.items) {
+        itemCounts[item.menuItem.name] = 
+          (itemCounts[item.menuItem.name] ?? 0) + item.quantity;
+      }
+    }
+    
+    final topItems = itemCounts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    
+    if (topItems.isNotEmpty) {
+      buffer.writeln('TOP ITEMS:');
+      for (int i = 0; i < topItems.length && i < 5; i++) {
+        final item = topItems[i];
+        buffer.writeln('${item.key} x${item.value}');
+      }
+      buffer.writeln('--------------------------------');
+    }
+    
+    // Footer: deviceId/store
+    buffer.writeln('Store: $businessName');
+    buffer.writeln('Device: POS-Terminal-01');
+    buffer.writeln('================================');
+    
+    return buffer.toString();
+  }
+
+  String _formatKOTTimestamp(DateTime dateTime) {
+    return '${dateTime.day.toString().padLeft(2, '0')}/${dateTime.month.toString().padLeft(2, '0')}/${dateTime.year} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
   }
 }
 
@@ -2105,15 +2224,6 @@ class OrderHistoryScreen extends ConsumerWidget {
             // Order Type
             Row(
               children: [
-                Icon(
-                  order.type == OrderType.dineIn ? Icons.restaurant 
-                    : order.type == OrderType.takeaway ? Icons.takeout_dining 
-                    : order.type == OrderType.delivery ? Icons.delivery_dining
-                    : Icons.delivery_dining,
-                  size: 16,
-                  color: Colors.grey[600],
-                ),
-                const SizedBox(width: 8),
                 Text(
                   order.type.toString().split('.').last.toUpperCase(),
                   style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
@@ -2654,6 +2764,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           IconButton(
+            icon: const Icon(Icons.print),
+            onPressed: () => _showKOTSummaryDialog(context, filteredOrders, settings.businessName),
+            tooltip: l10n(ref, 'print_kot_summary'),
+          ),
+          IconButton(
             icon: const Icon(Icons.date_range),
             onPressed: () => _showDateRangePicker(context),
           ),
@@ -2874,6 +2989,156 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       });
     }
   }
+
+  void _showKOTSummaryDialog(BuildContext context, List<Order> orders, String businessName) {
+    final dateRange = '${_formatKOTTimestamp(_startDate)} to ${_formatKOTTimestamp(_endDate)}';
+    final summaryContent = _formatKOTSummaryReport(
+      dateRange,
+      orders,
+      DateTime.now(),
+      businessName,
+    );
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.print, color: Color(0xFFFF9933)),
+            const SizedBox(width: 8),
+            Text(l10n(ref, 'kot_summary')),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.blue,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'REPORT',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Container(
+          width: double.maxFinite,
+          constraints: const BoxConstraints(maxHeight: 500),
+          child: SingleChildScrollView(
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey[300]!),
+                borderRadius: BorderRadius.circular(8),
+                color: Colors.grey[50],
+              ),
+              child: Text(
+                summaryContent,
+                style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  height: 1.2,
+                ),
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(l10n(ref, 'close')),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              // In a real implementation, this would send to printer
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('${l10n(ref, 'kot_summary')} sent to printer'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+              Navigator.pop(context);
+            },
+            icon: const Icon(Icons.print),
+            label: Text(l10n(ref, 'print_again')),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF9933),
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    // Console output for debugging
+    print('=== KOT SUMMARY REPORT ===');
+    print(summaryContent);
+    print('==========================');
+  }
+
+  // Helper methods to access the KOT formatting functions
+  String _formatKOTSummaryReport(String dateRange, List<Order> orders, DateTime printTime, String businessName) {
+    // Create a temporary OrderPlacementScreen to access the formatting method
+    // In a real app, these would be static methods or in a separate utility class
+    final buffer = StringBuffer();
+    
+    // Header: "KOT Summary – <Range>" with printed timestamp
+    buffer.writeln('================================');
+    buffer.writeln('     KOT SUMMARY - $dateRange');
+    buffer.writeln('================================');
+    buffer.writeln('Generated: ${_formatKOTTimestamp(printTime)}');
+    buffer.writeln('--------------------------------');
+    
+    // Metrics: Orders, Gross Sales, Average Order, Items Sold
+    final totalOrders = orders.length;
+    final grossSales = orders.fold(0.0, (sum, order) => sum + order.grandTotal);
+    final averageOrder = totalOrders > 0 ? grossSales / totalOrders : 0.0;
+    final totalItems = orders.fold(0, (sum, order) => 
+      sum + order.items.fold(0, (itemSum, item) => itemSum + item.quantity));
+    
+    buffer.writeln('METRICS:');
+    buffer.writeln('Orders: $totalOrders');
+    buffer.writeln('Gross Sales: ₹${grossSales.toStringAsFixed(2)}');
+    buffer.writeln('Avg Order: ₹${averageOrder.toStringAsFixed(2)}');
+    buffer.writeln('Items Sold: $totalItems');
+    buffer.writeln('--------------------------------');
+    
+    // Top Items: name x qty
+    final Map<String, int> itemCounts = {};
+    for (final order in orders) {
+      for (final item in order.items) {
+        itemCounts[item.menuItem.name] = 
+          (itemCounts[item.menuItem.name] ?? 0) + item.quantity;
+      }
+    }
+    
+    final topItems = itemCounts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    
+    if (topItems.isNotEmpty) {
+      buffer.writeln('TOP ITEMS:');
+      for (int i = 0; i < topItems.length && i < 5; i++) {
+        final item = topItems[i];
+        buffer.writeln('${item.key} x${item.value}');
+      }
+      buffer.writeln('--------------------------------');
+    }
+    
+    // Footer: deviceId/store
+    buffer.writeln('Store: $businessName');
+    buffer.writeln('Device: POS-Terminal-01');
+    buffer.writeln('================================');
+    
+    return buffer.toString();
+  }
+
+  String _formatKOTTimestamp(DateTime dateTime) {
+    return '${dateTime.day.toString().padLeft(2, '0')}/${dateTime.month.toString().padLeft(2, '0')}/${dateTime.year} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+  }
 }
 
 // Settings Screen
@@ -3088,6 +3353,51 @@ class SettingsScreen extends ConsumerWidget {
                         ),
                       ),
                     ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Reports & Analytics Card
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.analytics, color: Color(0xFFFF9933)),
+                        const SizedBox(width: 8),
+                        const Text('Reports & Analytics', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    ListTile(
+                      leading: const Icon(Icons.bar_chart, color: Color(0xFFFF9933)),
+                      title: const Text('Sales Reports'),
+                      subtitle: const Text('View sales analytics and trends'),
+                      trailing: const Icon(Icons.arrow_forward_ios),
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const ReportsScreen()),
+                      ),
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.receipt_long, color: Color(0xFFFF9933)),
+                      title: const Text('KOT Summary'),
+                      subtitle: const Text('Kitchen order ticket reports'),
+                      trailing: const Icon(Icons.arrow_forward_ios),
+                      onTap: () => _showKOTReportsDialog(context, ref),
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.inventory, color: Color(0xFFFF9933)),
+                      title: const Text('Top Selling Items'),
+                      subtitle: const Text('Most popular menu items'),
+                      trailing: const Icon(Icons.arrow_forward_ios),
+                      onTap: () => _showTopItemsDialog(context, ref),
+                    ),
                   ],
                 ),
               ),
@@ -3494,12 +3804,12 @@ class SettingsScreen extends ConsumerWidget {
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          Text('🍽️ Dine In: ${formatIndianCurrency(settings.currency, item.dineInPrice)}'),
-                                          Text('🥡 Takeaway: ${formatIndianCurrency(settings.currency, item.takeawayPrice)}'),
+                                          Text('Dine In: ${formatIndianCurrency(settings.currency, item.dineInPrice)}'),
+                                          Text('Takeaway: ${formatIndianCurrency(settings.currency, item.takeawayPrice)}'),
                                           if (item.deliveryPrice != null)
-                                            Text('🏠 Delivery: ${formatIndianCurrency(settings.currency, item.deliveryPrice!)}')
+                                            Text('Delivery: ${formatIndianCurrency(settings.currency, item.deliveryPrice!)}')
                                           else
-                                            Text('🏠 Delivery: ${formatIndianCurrency(settings.currency, item.takeawayPrice)}'),
+                                            Text('Delivery: ${formatIndianCurrency(settings.currency, item.takeawayPrice)}'),
                                         ],
                                       ),
                                     ),
@@ -3678,5 +3988,230 @@ class SettingsScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  // Reports & Analytics Methods
+  void _showKOTReportsDialog(BuildContext context, WidgetRef ref) {
+    final allOrders = ref.read(ordersProvider);
+    final settings = ref.read(settingsProvider);
+    final now = DateTime.now();
+    final startOfDay = DateTime(now.year, now.month, now.day);
+    final endOfDay = startOfDay.add(const Duration(hours: 23, minutes: 59, seconds: 59));
+
+    // Filter today's orders
+    final todaysOrders = allOrders.where((order) =>
+        order.createdAt.isAfter(startOfDay) &&
+        order.createdAt.isBefore(endOfDay)).toList();
+
+    final dateRange = '${_formatKOTTimestamp(startOfDay)} to ${_formatKOTTimestamp(endOfDay)}';
+    final summaryContent = _formatKOTSummaryReport(
+      dateRange,
+      todaysOrders,
+      now,
+      settings.businessName,
+    );
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.receipt_long, color: Color(0xFFFF9933)),
+            const SizedBox(width: 8),
+            const Text('KOT Summary'),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.blue,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'TODAY',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 400,
+          child: SingleChildScrollView(
+            child: Text(
+              summaryContent,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              print('Printing KOT Summary...\n$summaryContent');
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('KOT Summary sent to printer')),
+              );
+            },
+            child: const Text('Print'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showTopItemsDialog(BuildContext context, WidgetRef ref) {
+    final allOrders = ref.read(ordersProvider);
+    final settings = ref.read(settingsProvider);
+    
+    // Calculate top selling items from all orders
+    final Map<String, int> itemCounts = {};
+    for (final order in allOrders) {
+      for (final item in order.items) {
+        itemCounts[item.menuItem.name] = (itemCounts[item.menuItem.name] ?? 0) + item.quantity;
+      }
+    }
+    
+    final topItems = itemCounts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.inventory, color: Color(0xFFFF9933)),
+            SizedBox(width: 8),
+            Text('Top Selling Items'),
+          ],
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 400,
+          child: topItems.isEmpty
+              ? const Center(child: Text('No sales data available'))
+              : ListView.builder(
+                  itemCount: topItems.length,
+                  itemBuilder: (context, index) {
+                    final item = topItems[index];
+                    return Card(
+                      margin: const EdgeInsets.symmetric(vertical: 4),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: const Color(0xFFFF9933),
+                          child: Text(
+                            '${index + 1}',
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        title: Text(item.key),
+                        trailing: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.green[100],
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Text(
+                            '${item.value} sold',
+                            style: TextStyle(
+                              color: Colors.green[800],
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatKOTTimestamp(DateTime dateTime) {
+    return '${dateTime.day.toString().padLeft(2, '0')}/${dateTime.month.toString().padLeft(2, '0')}/${dateTime.year} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+  }
+
+  String _formatKOTSummaryReport(String dateRange, List<Order> orders, DateTime printTime, String businessName) {
+    final buffer = StringBuffer();
+    
+    // Header
+    buffer.writeln('='.padRight(32, '='));
+    buffer.writeln(businessName.length > 32 ? businessName.substring(0, 29) + '...' : businessName.padLeft((32 + businessName.length) ~/ 2));
+    buffer.writeln('KOT SUMMARY REPORT'.padLeft(25));
+    buffer.writeln('='.padRight(32, '='));
+    buffer.writeln();
+    
+    // Report details
+    buffer.writeln('Period: $dateRange');
+    buffer.writeln('Generated: ${_formatKOTTimestamp(printTime)}');
+    buffer.writeln('-'.padRight(32, '-'));
+    
+    if (orders.isEmpty) {
+      buffer.writeln('No orders found for this period');
+      buffer.writeln();
+      buffer.writeln('='.padRight(32, '='));
+      return buffer.toString();
+    }
+    
+    // Summary stats
+    final totalSales = orders.fold(0.0, (sum, order) => sum + order.grandTotal);
+    final completedOrders = orders.where((order) => order.status == OrderStatus.completed).length;
+    final avgOrderValue = totalSales / orders.length;
+    
+    buffer.writeln('SUMMARY:');
+    buffer.writeln('Total Orders: ${orders.length}');
+    buffer.writeln('Completed: $completedOrders');
+    buffer.writeln('Total Sales: ₹${totalSales.toStringAsFixed(2)}');
+    buffer.writeln('Avg Order: ₹${avgOrderValue.toStringAsFixed(2)}');
+    buffer.writeln('-'.padRight(32, '-'));
+    
+    // Order breakdown by status
+    final pendingOrders = orders.where((order) => order.status == OrderStatus.pending).length;
+    final preparingOrders = orders.where((order) => order.status == OrderStatus.preparing).length;
+    
+    buffer.writeln('ORDER STATUS:');
+    buffer.writeln('Pending: $pendingOrders');
+    buffer.writeln('Preparing: $preparingOrders');
+    buffer.writeln('Completed: $completedOrders');
+    buffer.writeln('-'.padRight(32, '-'));
+    
+    // Top items
+    final Map<String, int> itemCounts = {};
+    for (final order in orders) {
+      for (final item in order.items) {
+        itemCounts[item.menuItem.name] = (itemCounts[item.menuItem.name] ?? 0) + item.quantity;
+      }
+    }
+    
+    final topItems = itemCounts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    
+    if (topItems.isNotEmpty) {
+      buffer.writeln('TOP ITEMS:');
+      for (int i = 0; i < topItems.length && i < 5; i++) {
+        final item = topItems[i];
+        final name = item.key.length > 20 ? item.key.substring(0, 17) + '...' : item.key;
+        buffer.writeln('${(i + 1).toString().padLeft(2)}. $name x${item.value}');
+      }
+      buffer.writeln('-'.padRight(32, '-'));
+    }
+    
+    buffer.writeln();
+    buffer.writeln('='.padRight(32, '='));
+    
+    return buffer.toString();
   }
 }
