@@ -32,6 +32,9 @@ dependencies:
   cupertino_icons: ^1.0.2
   material_design_icons_flutter: ^7.0.0
   
+  # Charts & Analytics
+  fl_chart: ^0.64.0
+  
   # Network & Connectivity
   connectivity_plus: ^5.0.1
 

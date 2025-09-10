@@ -20,6 +20,11 @@ class KOTScreen extends ConsumerWidget {
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           IconButton(
+            icon: const Icon(Icons.summarize),
+            tooltip: 'KOT Summary',
+            onPressed: () => _showKOTSummaryDialog(context, orders, settings.businessName),
+          ),
+          IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
               // Refresh the orders
@@ -223,9 +228,9 @@ class KOTScreen extends ConsumerWidget {
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: ElevatedButton.icon(
-                                    onPressed: () => _markOrderComplete(ref, order),
-                                    icon: const Icon(Icons.check),
-                                    label: const Text('Complete'),
+                                    onPressed: () => _markOrderReady(ref, order),
+                                    icon: const Icon(Icons.restaurant),
+                                    label: const Text('Mark Ready'),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: Colors.green,
                                       foregroundColor: Colors.white,
@@ -324,7 +329,142 @@ class KOTScreen extends ConsumerWidget {
     return buffer.toString();
   }
 
-  void _markOrderComplete(WidgetRef ref, Order order) {
-    ref.read(ordersProvider.notifier).updateOrderStatus(order.id, OrderStatus.completed);
+  void _markOrderReady(WidgetRef ref, Order order) {
+    ref.read(ordersProvider.notifier).updateOrderStatus(order.id, OrderStatus.ready);
+    ScaffoldMessenger.of(ref.context).showSnackBar(
+      SnackBar(
+        content: Text('Order #${order.id.substring(order.id.length - 6)} marked as ready'),
+        backgroundColor: Colors.green,
+      ),
+    );
+  }
+
+  void _showKOTSummaryDialog(BuildContext context, List<Order> orders, String businessName) {
+    final now = DateTime.now();
+    final startOfDay = DateTime(now.year, now.month, now.day);
+    final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59);
+    
+    // Filter orders for today
+    final todaysOrders = orders.where((order) =>
+        order.createdAt.isAfter(startOfDay) &&
+        order.createdAt.isBefore(endOfDay)).toList();
+    
+    final summaryContent = _formatKOTSummaryReport(todaysOrders, businessName);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.summarize, color: Color(0xFFFF9933)),
+            const SizedBox(width: 8),
+            const Text('KOT Summary'),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.blue,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'TODAY',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Container(
+          width: double.maxFinite,
+          constraints: const BoxConstraints(maxHeight: 400),
+          child: SingleChildScrollView(
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey[300]!),
+                borderRadius: BorderRadius.circular(8),
+                color: Colors.grey[50],
+              ),
+              child: Text(
+                summaryContent,
+                style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 11,
+                ),
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              print('Printing KOT Summary...\n$summaryContent');
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('KOT Summary sent to printer')),
+              );
+            },
+            icon: const Icon(Icons.print),
+            label: const Text('Print'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF9933),
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatKOTSummaryReport(List<Order> orders, String businessName) {
+    final now = DateTime.now();
+    final buffer = StringBuffer();
+    
+    buffer.writeln('=== KOT SUMMARY REPORT ===');
+    buffer.writeln('================================');
+    buffer.writeln('     KOT SUMMARY - Today');
+    buffer.writeln('================================');
+    buffer.writeln('Generated: ${now.day}/${now.month}/${now.year} ${now.hour}:${now.minute.toString().padLeft(2, '0')}');
+    buffer.writeln('--------------------------------');
+    
+    final totalOrders = orders.length;
+    final pendingOrders = orders.where((o) => o.status == OrderStatus.pending).length;
+    final readyOrders = orders.where((o) => o.status == OrderStatus.ready).length;
+    final completedOrders = orders.where((o) => o.status == OrderStatus.completed).length;
+    final totalItems = orders.fold(0, (sum, order) => sum + order.items.fold(0, (itemSum, item) => itemSum + item.quantity));
+    
+    buffer.writeln('KITCHEN METRICS:');
+    buffer.writeln('Total Orders: $totalOrders');
+    buffer.writeln('Pending: $pendingOrders');
+    buffer.writeln('Ready: $readyOrders'); 
+    buffer.writeln('Completed: $completedOrders');
+    buffer.writeln('Total Items: $totalItems');
+    buffer.writeln('--------------------------------');
+    
+    if (orders.isNotEmpty) {
+      buffer.writeln('ORDER DETAILS:');
+      for (final order in orders) {
+        final statusIcon = order.status == OrderStatus.pending ? '⏳' :
+                          order.status == OrderStatus.ready ? '✅' : '🏁';
+        buffer.writeln('$statusIcon Order #${order.id.substring(order.id.length - 6)} - ${order.type.name.toUpperCase()}');
+        buffer.writeln('   Time: ${order.createdAt.hour}:${order.createdAt.minute.toString().padLeft(2, '0')}');
+        buffer.writeln('   Items: ${order.items.fold(0, (sum, item) => sum + item.quantity)}');
+        buffer.writeln('');
+      }
+    }
+    
+    buffer.writeln('--------------------------------');
+    buffer.writeln('Store: $businessName');
+    buffer.writeln('KOT Terminal');
+    buffer.writeln('================================');
+    
+    return buffer.toString();
   }
 }
