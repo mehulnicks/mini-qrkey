@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:convert';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'kot_screen.dart';
 
 // Multi-language Support
@@ -293,6 +294,131 @@ String formatIndianCurrency(String currency, double amount) {
 // Helper function for date time formatting
 String formatDateTime(DateTime dateTime) {
   return '${dateTime.day.toString().padLeft(2, '0')}/${dateTime.month.toString().padLeft(2, '0')}/${dateTime.year} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+}
+
+// WhatsApp Service for Bill Sharing
+class WhatsAppService {
+  static Future<void> shareBill({
+    required Order order,
+    required AppSettings settings,
+    String? customMessage,
+  }) async {
+    try {
+      final billContent = _generateWhatsAppBillContent(order, settings);
+      final message = customMessage ?? billContent;
+      
+      // Format phone number (remove any non-digits)
+      String? phoneNumber = order.customer?.phone?.replaceAll(RegExp(r'[^0-9]'), '');
+      
+      // Create WhatsApp URL
+      String whatsappUrl;
+      if (phoneNumber != null && phoneNumber.isNotEmpty) {
+        // Direct message to customer
+        if (!phoneNumber.startsWith('91') && phoneNumber.length == 10) {
+          phoneNumber = '91$phoneNumber'; // Add India country code
+        }
+        whatsappUrl = 'https://wa.me/$phoneNumber?text=${Uri.encodeComponent(message)}';
+      } else {
+        // Open WhatsApp with message but no specific contact
+        whatsappUrl = 'https://wa.me/?text=${Uri.encodeComponent(message)}';
+      }
+      
+      // Launch WhatsApp
+      final uri = Uri.parse(whatsappUrl);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        throw 'Could not launch WhatsApp';
+      }
+    } catch (e) {
+      print('Error sharing on WhatsApp: $e');
+      rethrow;
+    }
+  }
+
+  static String _generateWhatsAppBillContent(Order order, AppSettings settings) {
+    final buffer = StringBuffer();
+    
+    // Header with business name
+    buffer.writeln('🧾 *${settings.businessName}*');
+    buffer.writeln('📱 ${settings.phone}');
+    if (settings.address.isNotEmpty) {
+      buffer.writeln('📍 ${settings.address}');
+    }
+    buffer.writeln('━━━━━━━━━━━━━━━━━━━━━');
+    
+    // Order details
+    buffer.writeln('📋 *Order Details*');
+    buffer.writeln('🆔 Order #${order.id.substring(order.id.length - 8)}');
+    buffer.writeln('📅 ${_formatDateTime(order.createdAt)}');
+    buffer.writeln('🍽️ Type: ${_getOrderTypeEmoji(order.type)} ${_getOrderTypeLabel(order.type)}');
+    
+    if (order.customer != null) {
+      buffer.writeln('👤 Customer: ${order.customer!.name ?? 'Guest'}');
+    }
+    buffer.writeln('');
+    
+    // Items
+    buffer.writeln('🛒 *Items Ordered:*');
+    for (final item in order.items) {
+      buffer.writeln('• ${item.quantity}x ${item.menuItem.name}');
+      buffer.writeln('  ₹${item.unitPrice.toStringAsFixed(2)} each = ₹${item.total.toStringAsFixed(2)}');
+    }
+    buffer.writeln('');
+    
+    // Bill breakdown
+    buffer.writeln('💰 *Bill Breakdown:*');
+    buffer.writeln('Subtotal: ₹${order.subtotal.toStringAsFixed(2)}');
+    
+    // Add charges if applicable
+    if (order.type == OrderType.delivery && order.charges.deliveryCharge > 0) {
+      buffer.writeln('🚚 Delivery: ₹${order.charges.deliveryCharge.toStringAsFixed(2)}');
+    }
+    if (order.charges.packagingCharge > 0) {
+      buffer.writeln('📦 Packaging: ₹${order.charges.packagingCharge.toStringAsFixed(2)}');
+    }
+    if (order.charges.serviceCharge > 0) {
+      buffer.writeln('🔧 Service: ₹${order.charges.serviceCharge.toStringAsFixed(2)}');
+    }
+    
+    buffer.writeln('💸 GST (18%): ₹${order.taxAmount.toStringAsFixed(2)}');
+    buffer.writeln('━━━━━━━━━━━━━━━━━━━━━');
+    buffer.writeln('💳 *Total: ₹${order.grandTotal.toStringAsFixed(2)}*');
+    buffer.writeln('━━━━━━━━━━━━━━━━━━━━━');
+    
+    // Footer
+    buffer.writeln('');
+    buffer.writeln('🙏 Thank you for choosing ${settings.businessName}!');
+    buffer.writeln('⭐ Rate us and share your experience');
+    
+    return buffer.toString();
+  }
+
+  static String _formatDateTime(DateTime dateTime) {
+    return '${dateTime.day}/${dateTime.month}/${dateTime.year} at ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}';
+  }
+
+  static String _getOrderTypeLabel(OrderType type) {
+    switch (type) {
+      case OrderType.dineIn:
+        return 'Dine In';
+      case OrderType.takeaway:
+        return 'Takeaway';
+      case OrderType.delivery:
+        return 'Delivery';
+    }
+  }
+
+  static String _getOrderTypeEmoji(OrderType type) {
+    switch (type) {
+      case OrderType.dineIn:
+        return '🍽️';
+      case OrderType.takeaway:
+        return '🥡';
+      case OrderType.delivery:
+        return '🚚';
+    }
+  }
 }
 
 void main() {
@@ -1807,16 +1933,30 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
       _printKOT(orderId, currentOrder, customerInfo);
     }
     
-    // Show success message
+    // Show success message with WhatsApp sharing option
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Order #$orderId placed successfully!'),
         backgroundColor: Colors.green,
+        duration: const Duration(seconds: 4),
         action: SnackBarAction(
-          label: 'View',
+          label: 'Share WhatsApp',
           textColor: Colors.white,
-          onPressed: () {
-            // Future: Navigate to order details
+          onPressed: () async {
+            final settings = ref.read(settingsProvider);
+            try {
+              await WhatsAppService.shareBill(
+                order: newOrder,
+                settings: settings,
+              );
+            } catch (e) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Could not open WhatsApp: ${e.toString()}'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
           },
         ),
       ),
@@ -2332,7 +2472,7 @@ class OrderHistoryScreen extends ConsumerWidget {
                 ),
                 isActive 
                   ? _buildActionButtons(context, ref, order)
-                  : _buildCompletedOrderActions(context, order),
+                  : _buildCompletedOrderActions(context, ref, order),
               ],
             ),
           ],
@@ -2437,6 +2577,9 @@ class OrderHistoryScreen extends ConsumerWidget {
               case 'print':
                 _printOrderBill(context, order);
                 break;
+              case 'whatsapp':
+                _shareOnWhatsApp(context, ref, order);
+                break;
               case 'split':
                 _splitOrderBill(context, order);
                 break;
@@ -2469,6 +2612,16 @@ class OrderHistoryScreen extends ConsumerWidget {
               ),
             ),
             PopupMenuItem(
+              value: 'whatsapp',
+              child: Row(
+                children: [
+                  Icon(Icons.message, size: 16, color: Colors.green),
+                  SizedBox(width: 8),
+                  Text('Share WhatsApp', style: TextStyle(color: Colors.green)),
+                ],
+              ),
+            ),
+            PopupMenuItem(
               value: 'split',
               child: Row(
                 children: [
@@ -2496,7 +2649,7 @@ class OrderHistoryScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildCompletedOrderActions(BuildContext context, Order order) {
+  Widget _buildCompletedOrderActions(BuildContext context, WidgetRef ref, Order order) {
     return PopupMenuButton<String>(
       onSelected: (value) {
         switch (value) {
@@ -2505,6 +2658,9 @@ class OrderHistoryScreen extends ConsumerWidget {
             break;
           case 'print':
             _printOrderBill(context, order);
+            break;
+          case 'whatsapp':
+            _shareOnWhatsApp(context, ref, order);
             break;
         }
       },
@@ -2526,6 +2682,16 @@ class OrderHistoryScreen extends ConsumerWidget {
               Icon(Icons.print, size: 16, color: Color(0xFFFF9933)),
               SizedBox(width: 8),
               Text('Print Bill', style: TextStyle(color: Color(0xFFFF9933))),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: 'whatsapp',
+          child: Row(
+            children: [
+              Icon(Icons.message, size: 16, color: Colors.green),
+              SizedBox(width: 8),
+              Text('Share WhatsApp', style: TextStyle(color: Colors.green)),
             ],
           ),
         ),
@@ -3030,6 +3196,148 @@ class OrderHistoryScreen extends ConsumerWidget {
     buffer.writeln('   Visit us again!');
     
     return buffer.toString();
+  }
+
+  void _shareOnWhatsApp(BuildContext context, WidgetRef ref, Order order) async {
+    final settings = ref.read(settingsProvider);
+    
+    // Show sharing options dialog
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.message, color: Colors.green[600]),
+            const SizedBox(width: 8),
+            const Text('Share Bill'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (order.customer?.phone != null)
+              ListTile(
+                leading: Icon(Icons.person, color: Colors.green[600]),
+                title: const Text('Send to Customer'),
+                subtitle: Text('${order.customer!.name ?? 'Customer'} - ${order.customer!.phone}'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await _sendWhatsAppBill(context, order, settings, toCustomer: true);
+                },
+              ),
+            ListTile(
+              leading: Icon(Icons.share, color: Colors.blue[600]),
+              title: const Text('Share with Anyone'),
+              subtitle: const Text('Choose contact from WhatsApp'),
+              onTap: () async {
+                Navigator.pop(context);
+                await _sendWhatsAppBill(context, order, settings, toCustomer: false);
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.edit, color: Colors.orange[600]),
+              title: const Text('Custom Message'),
+              subtitle: const Text('Edit message before sharing'),
+              onTap: () {
+                Navigator.pop(context);
+                _showCustomMessageDialog(context, order, settings);
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _sendWhatsAppBill(BuildContext context, Order order, AppSettings settings, {required bool toCustomer}) async {
+    try {
+      await WhatsAppService.shareBill(
+        order: order,
+        settings: settings,
+      );
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(toCustomer ? 'Bill sent to customer via WhatsApp' : 'WhatsApp opened with bill details'),
+          backgroundColor: Colors.green,
+          action: SnackBarAction(
+            label: 'OK',
+            textColor: Colors.white,
+            onPressed: () {},
+          ),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not open WhatsApp: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _showCustomMessageDialog(BuildContext context, Order order, AppSettings settings) {
+    final defaultMessage = WhatsAppService._generateWhatsAppBillContent(order, settings);
+    final messageController = TextEditingController(text: defaultMessage);
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Custom WhatsApp Message'),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 400,
+          child: TextField(
+            controller: messageController,
+            maxLines: null,
+            expands: true,
+            decoration: const InputDecoration(
+              hintText: 'Edit your message...',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              try {
+                await WhatsAppService.shareBill(
+                  order: order,
+                  settings: settings,
+                  customMessage: messageController.text,
+                );
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('WhatsApp opened with custom message'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Could not open WhatsApp: ${e.toString()}'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            },
+            child: const Text('Share'),
+          ),
+        ],
+      ),
+    );
   }
 }
 
