@@ -362,13 +362,26 @@ class WhatsAppService {
     buffer.writeln('🛒 *Items Ordered:*');
     for (final item in order.items) {
       buffer.writeln('• ${item.quantity}x ${item.menuItem.name}');
-      buffer.writeln('  ₹${item.unitPrice.toStringAsFixed(2)} each = ₹${item.total.toStringAsFixed(2)}');
+      if (item.hasDiscount) {
+        buffer.writeln('  ₹${item.unitPrice.toStringAsFixed(2)} each');
+        buffer.writeln('  Subtotal: ₹${item.subtotal.toStringAsFixed(2)}');
+        buffer.writeln('  💸 Discount: -₹${item.discountAmount.toStringAsFixed(2)}');
+        buffer.writeln('  Total: ₹${item.total.toStringAsFixed(2)}');
+      } else {
+        buffer.writeln('  ₹${item.unitPrice.toStringAsFixed(2)} each = ₹${item.total.toStringAsFixed(2)}');
+      }
     }
     buffer.writeln('');
     
     // Bill breakdown
     buffer.writeln('💰 *Bill Breakdown:*');
-    buffer.writeln('Subtotal: ₹${order.subtotal.toStringAsFixed(2)}');
+    buffer.writeln('Items Subtotal: ₹${order.itemsSubtotal.toStringAsFixed(2)}');
+    
+    // Show item-level discounts
+    if (order.hasItemDiscounts) {
+      buffer.writeln('💸 Item Discounts: -₹${order.itemsDiscountAmount.toStringAsFixed(2)}');
+      buffer.writeln('After Item Discounts: ₹${order.itemsTotal.toStringAsFixed(2)}');
+    }
     
     // Add charges if applicable
     if (order.type == OrderType.delivery && order.charges.deliveryCharge > 0) {
@@ -381,9 +394,25 @@ class WhatsAppService {
       buffer.writeln('🔧 Service: ₹${order.charges.serviceCharge.toStringAsFixed(2)}');
     }
     
+    // Show order-level discount
+    if (order.hasOrderDiscount) {
+      final baseAmount = order.orderDiscount!.applyToSubtotal ? order.subtotal : order.taxableAmount;
+      buffer.writeln('');
+      buffer.writeln('💸 Order Discount: -₹${order.orderDiscountAmount.toStringAsFixed(2)}');
+      if (order.orderDiscount!.reason != null) {
+        buffer.writeln('   (${order.orderDiscount!.reason})');
+      }
+    }
+    
     buffer.writeln('💸 GST (18%): ₹${order.taxAmount.toStringAsFixed(2)}');
     buffer.writeln('━━━━━━━━━━━━━━━━━━━━━');
     buffer.writeln('💳 *Total: ₹${order.grandTotal.toStringAsFixed(2)}*');
+    
+    // Show total savings if any discounts
+    if (order.hasDiscounts) {
+      buffer.writeln('🎉 Total Savings: ₹${order.totalDiscountAmount.toStringAsFixed(2)}');
+    }
+    
     buffer.writeln('━━━━━━━━━━━━━━━━━━━━━');
     
     // Footer
@@ -418,6 +447,556 @@ class WhatsAppService {
       case OrderType.delivery:
         return '🚚';
     }
+  }
+}
+
+// Discount Dialog Components
+class DiscountDialogs {
+  // Item Discount Dialog
+  static Future<ItemDiscount?> showItemDiscountDialog({
+    required BuildContext context,
+    required OrderItem item,
+    ItemDiscount? existingDiscount,
+  }) async {
+    return showDialog<ItemDiscount>(
+      context: context,
+      builder: (context) => ItemDiscountDialog(
+        item: item,
+        existingDiscount: existingDiscount,
+      ),
+    );
+  }
+
+  // Order Discount Dialog
+  static Future<OrderDiscount?> showOrderDiscountDialog({
+    required BuildContext context,
+    required Order order,
+    OrderDiscount? existingDiscount,
+  }) async {
+    return showDialog<OrderDiscount>(
+      context: context,
+      builder: (context) => OrderDiscountDialog(
+        order: order,
+        existingDiscount: existingDiscount,
+      ),
+    );
+  }
+}
+
+class ItemDiscountDialog extends StatefulWidget {
+  final OrderItem item;
+  final ItemDiscount? existingDiscount;
+
+  const ItemDiscountDialog({
+    super.key,
+    required this.item,
+    this.existingDiscount,
+  });
+
+  @override
+  State<ItemDiscountDialog> createState() => _ItemDiscountDialogState();
+}
+
+class _ItemDiscountDialogState extends State<ItemDiscountDialog> {
+  late DiscountType selectedType;
+  late TextEditingController valueController;
+  late TextEditingController reasonController;
+  double maxDiscountValue = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    selectedType = widget.existingDiscount?.type ?? DiscountType.percentage;
+    valueController = TextEditingController(
+      text: widget.existingDiscount?.value.toString() ?? '',
+    );
+    reasonController = TextEditingController(
+      text: widget.existingDiscount?.reason ?? '',
+    );
+    _calculateMaxDiscount();
+  }
+
+  void _calculateMaxDiscount() {
+    maxDiscountValue = selectedType == DiscountType.percentage ? 100 : widget.item.subtotal;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Discount for ${widget.item.menuItem.name}'),
+      content: SizedBox(
+        width: 400,
+        height: 500, // Set a fixed height to prevent overflow
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+            // Item details
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Item: ${widget.item.menuItem.name}', 
+                       style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Text('Quantity: ${widget.item.quantity}'),
+                  Text('Unit Price: ₹${widget.item.unitPrice.toStringAsFixed(2)}'),
+                  Text('Subtotal: ₹${widget.item.subtotal.toStringAsFixed(2)}'),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            
+            // Quick preset buttons
+            const Text('Quick Discounts:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                _buildQuickDiscountChip('5%', DiscountType.percentage, 5),
+                _buildQuickDiscountChip('10%', DiscountType.percentage, 10),
+                _buildQuickDiscountChip('15%', DiscountType.percentage, 15),
+                _buildQuickDiscountChip('₹10', DiscountType.fixed, 10),
+                _buildQuickDiscountChip('₹25', DiscountType.fixed, 25),
+                _buildQuickDiscountChip('₹50', DiscountType.fixed, 50),
+              ],
+            ),
+            const SizedBox(height: 16),
+            
+            // Discount type selection
+            const Text('Discount Type:', style: TextStyle(fontWeight: FontWeight.bold)),
+            Row(
+              children: [
+                Expanded(
+                  child: RadioListTile<DiscountType>(
+                    title: const Text('Percentage'),
+                    value: DiscountType.percentage,
+                    groupValue: selectedType,
+                    onChanged: (value) {
+                      setState(() {
+                        selectedType = value!;
+                        _calculateMaxDiscount();
+                      });
+                    },
+                  ),
+                ),
+                Expanded(
+                  child: RadioListTile<DiscountType>(
+                    title: const Text('Fixed Amount'),
+                    value: DiscountType.fixed,
+                    groupValue: selectedType,
+                    onChanged: (value) {
+                      setState(() {
+                        selectedType = value!;
+                        _calculateMaxDiscount();
+                      });
+                    },
+                  ),
+                ),
+              ],
+            ),
+            
+            // Discount value input
+            TextField(
+              controller: valueController,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: selectedType == DiscountType.percentage 
+                    ? 'Discount Percentage (0-100)' 
+                    : 'Discount Amount (₹)',
+                helperText: 'Max: ${selectedType == DiscountType.percentage ? "100%" : "₹${maxDiscountValue.toStringAsFixed(2)}"}',
+                prefixText: selectedType == DiscountType.fixed ? '₹' : null,
+                suffixText: selectedType == DiscountType.percentage ? '%' : null,
+              ),
+            ),
+            const SizedBox(height: 12),
+            
+            // Reason input
+            TextField(
+              controller: reasonController,
+              decoration: const InputDecoration(
+                labelText: 'Reason (Optional)',
+                hintText: 'e.g., Customer complaint, Loyalty discount',
+              ),
+            ),
+            const SizedBox(height: 16),
+            
+            // Preview
+            if (valueController.text.isNotEmpty) _buildDiscountPreview(),
+          ],
+        ),
+      ),
+    ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        if (widget.existingDiscount != null)
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(ItemDiscount(
+              type: DiscountType.percentage,
+              value: 0,
+            )),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Remove Discount'),
+          ),
+        ElevatedButton(
+          onPressed: _canApplyDiscount() ? _applyDiscount : null,
+          child: const Text('Apply'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQuickDiscountChip(String label, DiscountType type, double value) {
+    return ActionChip(
+      label: Text(label),
+      onPressed: () {
+        setState(() {
+          selectedType = type;
+          valueController.text = value.toString();
+          _calculateMaxDiscount();
+        });
+      },
+    );
+  }
+
+  Widget _buildDiscountPreview() {
+    final value = double.tryParse(valueController.text) ?? 0;
+    if (value <= 0) return const SizedBox.shrink();
+    
+    final discount = ItemDiscount(type: selectedType, value: value);
+    final discountAmount = discount.calculateDiscount(widget.item.subtotal);
+    final finalTotal = widget.item.subtotal - discountAmount;
+    
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.green[50],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.green[200]!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Preview:', style: TextStyle(fontWeight: FontWeight.bold)),
+          Text('Original: ₹${widget.item.subtotal.toStringAsFixed(2)}'),
+          Text('Discount: -₹${discountAmount.toStringAsFixed(2)}'),
+          Text('Final: ₹${finalTotal.toStringAsFixed(2)}', 
+               style: const TextStyle(fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
+  bool _canApplyDiscount() {
+    final value = double.tryParse(valueController.text) ?? 0;
+    return value > 0 && value <= maxDiscountValue;
+  }
+
+  void _applyDiscount() {
+    final value = double.tryParse(valueController.text) ?? 0;
+    final discount = ItemDiscount(
+      type: selectedType,
+      value: value,
+      reason: reasonController.text.trim().isEmpty ? null : reasonController.text.trim(),
+    );
+    Navigator.of(context).pop(discount);
+  }
+}
+
+class OrderDiscountDialog extends StatefulWidget {
+  final Order order;
+  final OrderDiscount? existingDiscount;
+
+  const OrderDiscountDialog({
+    super.key,
+    required this.order,
+    this.existingDiscount,
+  });
+
+  @override
+  State<OrderDiscountDialog> createState() => _OrderDiscountDialogState();
+}
+
+class _OrderDiscountDialogState extends State<OrderDiscountDialog> {
+  late DiscountType selectedType;
+  late TextEditingController valueController;
+  late TextEditingController reasonController;
+  late bool applyToSubtotal;
+  double maxDiscountValue = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    selectedType = widget.existingDiscount?.type ?? DiscountType.percentage;
+    valueController = TextEditingController(
+      text: widget.existingDiscount?.value.toString() ?? '',
+    );
+    reasonController = TextEditingController(
+      text: widget.existingDiscount?.reason ?? '',
+    );
+    applyToSubtotal = widget.existingDiscount?.applyToSubtotal ?? true;
+    _calculateMaxDiscount();
+  }
+
+  void _calculateMaxDiscount() {
+    final baseAmount = applyToSubtotal ? widget.order.subtotal : widget.order.taxableAmount;
+    maxDiscountValue = selectedType == DiscountType.percentage ? 100 : baseAmount;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Order Discount'),
+      content: SizedBox(
+        width: 450,
+        height: 500, // Fixed height to prevent overflow
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+            // Order summary
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Order Summary:', style: TextStyle(fontWeight: FontWeight.bold)),
+                  Text('Items: ${widget.order.items.length}'),
+                  Text('Subtotal: ₹${widget.order.subtotal.toStringAsFixed(2)}'),
+                  if (widget.order.totalCharges > 0)
+                    Text('Charges: ₹${widget.order.totalCharges.toStringAsFixed(2)}'),
+                  Text('Taxable Amount: ₹${widget.order.taxableAmount.toStringAsFixed(2)}'),
+                  const Divider(),
+                  Text('Grand Total: ₹${widget.order.grandTotal.toStringAsFixed(2)}', 
+                       style: const TextStyle(fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            
+            // Quick preset buttons
+            const Text('Quick Discounts:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                _buildQuickDiscountChip('5%', DiscountType.percentage, 5),
+                _buildQuickDiscountChip('10%', DiscountType.percentage, 10),
+                _buildQuickDiscountChip('15%', DiscountType.percentage, 15),
+                _buildQuickDiscountChip('20%', DiscountType.percentage, 20),
+                _buildQuickDiscountChip('₹50', DiscountType.fixed, 50),
+                _buildQuickDiscountChip('₹100', DiscountType.fixed, 100),
+              ],
+            ),
+            const SizedBox(height: 16),
+            
+            // Apply to option
+            const Text('Apply Discount To:', style: TextStyle(fontWeight: FontWeight.bold)),
+            Column(
+              children: [
+                RadioListTile<bool>(
+                  title: const Text('Subtotal (before charges and tax)'),
+                  subtitle: Text('₹${widget.order.subtotal.toStringAsFixed(2)}'),
+                  value: true,
+                  groupValue: applyToSubtotal,
+                  onChanged: (value) {
+                    setState(() {
+                      applyToSubtotal = value!;
+                      _calculateMaxDiscount();
+                    });
+                  },
+                ),
+                RadioListTile<bool>(
+                  title: const Text('Taxable Amount (subtotal + charges)'),
+                  subtitle: Text('₹${widget.order.taxableAmount.toStringAsFixed(2)}'),
+                  value: false,
+                  groupValue: applyToSubtotal,
+                  onChanged: (value) {
+                    setState(() {
+                      applyToSubtotal = value!;
+                      _calculateMaxDiscount();
+                    });
+                  },
+                ),
+              ],
+            ),
+            
+            // Discount type selection
+            const Text('Discount Type:', style: TextStyle(fontWeight: FontWeight.bold)),
+            Row(
+              children: [
+                Expanded(
+                  child: RadioListTile<DiscountType>(
+                    title: const Text('Percentage'),
+                    value: DiscountType.percentage,
+                    groupValue: selectedType,
+                    onChanged: (value) {
+                      setState(() {
+                        selectedType = value!;
+                        _calculateMaxDiscount();
+                      });
+                    },
+                  ),
+                ),
+                Expanded(
+                  child: RadioListTile<DiscountType>(
+                    title: const Text('Fixed Amount'),
+                    value: DiscountType.fixed,
+                    groupValue: selectedType,
+                    onChanged: (value) {
+                      setState(() {
+                        selectedType = value!;
+                        _calculateMaxDiscount();
+                      });
+                    },
+                  ),
+                ),
+              ],
+            ),
+            
+            // Discount value input
+            TextField(
+              controller: valueController,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: selectedType == DiscountType.percentage 
+                    ? 'Discount Percentage (0-100)' 
+                    : 'Discount Amount (₹)',
+                helperText: 'Max: ${selectedType == DiscountType.percentage ? "100%" : "₹${maxDiscountValue.toStringAsFixed(2)}"}',
+                prefixText: selectedType == DiscountType.fixed ? '₹' : null,
+                suffixText: selectedType == DiscountType.percentage ? '%' : null,
+              ),
+            ),
+            const SizedBox(height: 12),
+            
+            // Reason input
+            TextField(
+              controller: reasonController,
+              decoration: const InputDecoration(
+                labelText: 'Reason (Optional)',
+                hintText: 'e.g., Bulk order, Special customer, Promotion',
+              ),
+            ),
+            const SizedBox(height: 16),
+            
+            // Preview
+            if (valueController.text.isNotEmpty) _buildDiscountPreview(),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        if (widget.existingDiscount != null)
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(OrderDiscount(
+              type: DiscountType.percentage,
+              value: 0,
+            )),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Remove Discount'),
+          ),
+        ElevatedButton(
+          onPressed: _canApplyDiscount() ? _applyDiscount : null,
+          child: const Text('Apply'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQuickDiscountChip(String label, DiscountType type, double value) {
+    return ActionChip(
+      label: Text(label),
+      onPressed: () {
+        setState(() {
+          selectedType = type;
+          valueController.text = value.toString();
+          _calculateMaxDiscount();
+        });
+      },
+    );
+  }
+
+  Widget _buildDiscountPreview() {
+    final value = double.tryParse(valueController.text) ?? 0;
+    if (value <= 0) return const SizedBox.shrink();
+    
+    final discount = OrderDiscount(
+      type: selectedType, 
+      value: value, 
+      applyToSubtotal: applyToSubtotal,
+    );
+    
+    final baseAmount = applyToSubtotal ? widget.order.subtotal : widget.order.taxableAmount;
+    final discountAmount = discount.calculateDiscount(baseAmount);
+    
+    // Calculate new totals
+    double newTaxableAmount;
+    double newTaxAmount;
+    double newGrandTotal;
+    
+    if (applyToSubtotal) {
+      newTaxableAmount = (widget.order.subtotal - discountAmount) + widget.order.totalCharges;
+      newTaxAmount = newTaxableAmount * 0.18;
+      newGrandTotal = newTaxableAmount + newTaxAmount;
+    } else {
+      newTaxableAmount = widget.order.taxableAmount - discountAmount;
+      newTaxAmount = newTaxableAmount * 0.18;
+      newGrandTotal = newTaxableAmount + newTaxAmount;
+    }
+    
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.green[50],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.green[200]!),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Preview:', style: TextStyle(fontWeight: FontWeight.bold)),
+          Text('Original Total: ₹${widget.order.grandTotal.toStringAsFixed(2)}'),
+          Text('Discount on ${applyToSubtotal ? "Subtotal" : "Taxable Amount"}: -₹${discountAmount.toStringAsFixed(2)}'),
+          Text('New Grand Total: ₹${newGrandTotal.toStringAsFixed(2)}', 
+               style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+          Text('Savings: ₹${(widget.order.grandTotal - newGrandTotal).toStringAsFixed(2)}', 
+               style: const TextStyle(color: Colors.green)),
+        ],
+      ),
+    );
+  }
+
+  bool _canApplyDiscount() {
+    final value = double.tryParse(valueController.text) ?? 0;
+    return value > 0 && value <= maxDiscountValue;
+  }
+
+  void _applyDiscount() {
+    final value = double.tryParse(valueController.text) ?? 0;
+    final discount = OrderDiscount(
+      type: selectedType,
+      value: value,
+      reason: reasonController.text.trim().isEmpty ? null : reasonController.text.trim(),
+      applyToSubtotal: applyToSubtotal,
+    );
+    Navigator.of(context).pop(discount);
   }
 }
 
@@ -534,6 +1113,7 @@ class OrderItem {
   final OrderType orderType;
   final List<Addon> selectedAddons;
   final String? specialInstructions;
+  final ItemDiscount? discount;
   
   OrderItem({
     required this.menuItem, 
@@ -541,13 +1121,20 @@ class OrderItem {
     required this.orderType,
     this.selectedAddons = const [],
     this.specialInstructions,
+    this.discount,
   });
   
   double get basePrice => menuItem.getPriceForOrderType(orderType);
   double get addonsPrice => selectedAddons.fold(0.0, (sum, addon) => sum + addon.price);
   double get unitPrice => basePrice + addonsPrice;
   double get subtotal => unitPrice * quantity;
-  double get total => subtotal;
+  
+  // Discount calculations
+  double get discountAmount => discount?.calculateDiscount(subtotal) ?? 0.0;
+  double get total => subtotal - discountAmount;
+  
+  // Check if item has discount
+  bool get hasDiscount => discount != null && discountAmount > 0;
   
   OrderItem copyWith({
     MenuItem? menuItem,
@@ -555,6 +1142,7 @@ class OrderItem {
     OrderType? orderType,
     List<Addon>? selectedAddons,
     String? specialInstructions,
+    ItemDiscount? discount,
   }) {
     return OrderItem(
       menuItem: menuItem ?? this.menuItem,
@@ -562,7 +1150,13 @@ class OrderItem {
       orderType: orderType ?? this.orderType,
       selectedAddons: selectedAddons ?? this.selectedAddons,
       specialInstructions: specialInstructions ?? this.specialInstructions,
+      discount: discount ?? this.discount,
     );
+  }
+  
+  // Remove discount
+  OrderItem removeDiscount() {
+    return copyWith(discount: null);
   }
 }
 
@@ -570,6 +1164,79 @@ enum OrderType { dineIn, takeaway, delivery }
 enum OrderStatus { pending, confirmed, preparing, ready, completed, cancelled }
 enum PaymentStatus { pending, partial, completed, refunded }
 enum PaymentMethod { cash, card, upi, online }
+
+// Discount Types and Models
+enum DiscountType { percentage, fixed }
+
+class ItemDiscount {
+  final DiscountType type;
+  final double value;
+  final String? reason;
+  
+  ItemDiscount({
+    required this.type,
+    required this.value,
+    this.reason,
+  });
+  
+  double calculateDiscount(double amount) {
+    switch (type) {
+      case DiscountType.percentage:
+        return amount * (value / 100);
+      case DiscountType.fixed:
+        return value > amount ? amount : value;
+    }
+  }
+  
+  ItemDiscount copyWith({
+    DiscountType? type,
+    double? value,
+    String? reason,
+  }) {
+    return ItemDiscount(
+      type: type ?? this.type,
+      value: value ?? this.value,
+      reason: reason ?? this.reason,
+    );
+  }
+}
+
+class OrderDiscount {
+  final DiscountType type;
+  final double value;
+  final String? reason;
+  final bool applyToSubtotal; // Apply to subtotal or grand total
+  
+  OrderDiscount({
+    required this.type,
+    required this.value,
+    this.reason,
+    this.applyToSubtotal = true,
+  });
+  
+  double calculateDiscount(double amount) {
+    switch (type) {
+      case DiscountType.percentage:
+        return amount * (value / 100);
+      case DiscountType.fixed:
+        return value > amount ? amount : value;
+    }
+  }
+  
+  OrderDiscount copyWith({
+    DiscountType? type,
+    double? value,
+    String? reason,
+    bool? applyToSubtotal,
+  }) {
+    return OrderDiscount(
+      type: type ?? this.type,
+      value: value ?? this.value,
+      reason: reason ?? this.reason,
+      applyToSubtotal: applyToSubtotal ?? this.applyToSubtotal,
+    );
+  }
+}
 
 class CustomerInfo {
   final String? name;
@@ -620,6 +1287,7 @@ class Order {
   final List<Payment> payments;
   final PaymentStatus paymentStatus;
   final bool kotPrinted;
+  final OrderDiscount? orderDiscount;
   
   Order({
     required this.id,
@@ -633,13 +1301,61 @@ class Order {
     this.payments = const [],
     this.paymentStatus = PaymentStatus.pending,
     this.kotPrinted = false,
+    this.orderDiscount,
   }) : charges = charges ?? OrderCharges();
   
-  double get subtotal => items.fold(0.0, (sum, item) => sum + item.total);
+  // Item-level totals
+  double get itemsSubtotal => items.fold(0.0, (sum, item) => sum + item.subtotal);
+  double get itemsDiscountAmount => items.fold(0.0, (sum, item) => sum + item.discountAmount);
+  double get itemsTotal => items.fold(0.0, (sum, item) => sum + item.total);
+  
+  // Order-level calculations
+  double get subtotal => itemsTotal; // After item discounts
   double get totalCharges => charges.total;
   double get taxableAmount => subtotal + totalCharges;
-  double get taxAmount => taxableAmount * 0.18; // 18% GST
-  double get grandTotal => taxableAmount + taxAmount;
+  
+  // Order discount calculations
+  double get orderDiscountAmount {
+    if (orderDiscount == null) return 0.0;
+    
+    if (orderDiscount!.applyToSubtotal) {
+      return orderDiscount!.calculateDiscount(subtotal);
+    } else {
+      // Apply to taxable amount (subtotal + charges)
+      return orderDiscount!.calculateDiscount(taxableAmount);
+    }
+  }
+  
+  double get discountedAmount => orderDiscount?.applyToSubtotal == true
+      ? subtotal - orderDiscountAmount
+      : taxableAmount - orderDiscountAmount;
+      
+  double get taxAmount {
+    if (orderDiscount?.applyToSubtotal == true) {
+      // Tax on discounted subtotal + charges
+      return (discountedAmount + totalCharges) * 0.18;
+    } else {
+      // Tax on discounted taxable amount
+      return discountedAmount * 0.18;
+    }
+  }
+  
+  double get grandTotal {
+    if (orderDiscount?.applyToSubtotal == true) {
+      return discountedAmount + totalCharges + taxAmount;
+    } else {
+      return discountedAmount + taxAmount;
+    }
+  }
+  
+  // Total discount amount (items + order)
+  double get totalDiscountAmount => itemsDiscountAmount + orderDiscountAmount;
+  
+  // Check if order has any discounts
+  bool get hasDiscounts => totalDiscountAmount > 0;
+  bool get hasOrderDiscount => orderDiscount != null && orderDiscountAmount > 0;
+  bool get hasItemDiscounts => itemsDiscountAmount > 0;
+  
   double get paidAmount => payments.fold(0.0, (sum, payment) => sum + payment.amount);
   double get balanceAmount => grandTotal - paidAmount;
   
@@ -655,9 +1371,7 @@ class Order {
     List<Payment>? payments,
     PaymentStatus? paymentStatus,
     bool? kotPrinted,
-    double? subtotal,
-    double? taxAmount,
-    double? grandTotal,
+    OrderDiscount? orderDiscount,
   }) {
     return Order(
       id: id ?? this.id,
@@ -671,7 +1385,13 @@ class Order {
       payments: payments ?? this.payments,
       paymentStatus: paymentStatus ?? this.paymentStatus,
       kotPrinted: kotPrinted ?? this.kotPrinted,
+      orderDiscount: orderDiscount ?? this.orderDiscount,
     );
+  }
+  
+  // Remove order discount
+  Order removeOrderDiscount() {
+    return copyWith(orderDiscount: null);
   }
 }
 
@@ -807,7 +1527,7 @@ class CurrentOrderNotifier extends StateNotifier<List<OrderItem>> {
       final existingItem = state[existingIndex];
       state = [
         ...state.take(existingIndex),
-        OrderItem(menuItem: menuItem, quantity: existingItem.quantity + 1, orderType: orderType),
+        existingItem.copyWith(quantity: existingItem.quantity + 1),
         ...state.skip(existingIndex + 1),
       ];
     } else {
@@ -823,7 +1543,7 @@ class CurrentOrderNotifier extends StateNotifier<List<OrderItem>> {
     
     state = state.map((item) => 
       item.menuItem.id == menuItemId && item.orderType == orderType
-        ? OrderItem(menuItem: item.menuItem, quantity: quantity, orderType: orderType)
+        ? item.copyWith(quantity: quantity)
         : item
     ).toList();
   }
@@ -831,6 +1551,27 @@ class CurrentOrderNotifier extends StateNotifier<List<OrderItem>> {
   void removeItem(String menuItemId, OrderType orderType) {
     state = state.where((item) => 
         !(item.menuItem.id == menuItemId && item.orderType == orderType)).toList();
+  }
+  
+  // Discount operations
+  void applyItemDiscount(String menuItemId, OrderType orderType, ItemDiscount discount) {
+    state = state.map((item) => 
+      item.menuItem.id == menuItemId && item.orderType == orderType
+        ? item.copyWith(discount: discount)
+        : item
+    ).toList();
+  }
+  
+  void removeItemDiscount(String menuItemId, OrderType orderType) {
+    state = state.map((item) => 
+      item.menuItem.id == menuItemId && item.orderType == orderType
+        ? item.removeDiscount()
+        : item
+    ).toList();
+  }
+  
+  void clearAllItemDiscounts() {
+    state = state.map((item) => item.removeDiscount()).toList();
   }
 
   void clearOrder() {
@@ -845,7 +1586,7 @@ class CurrentOrderNotifier extends StateNotifier<List<OrderItem>> {
       final existingItem = state[existingIndex];
       state = [
         ...state.take(existingIndex),
-        OrderItem(menuItem: orderItem.menuItem, quantity: existingItem.quantity + 1, orderType: orderItem.orderType),
+        existingItem.copyWith(quantity: existingItem.quantity + 1),
         ...state.skip(existingIndex + 1),
       ];
     } else {
@@ -854,6 +1595,8 @@ class CurrentOrderNotifier extends StateNotifier<List<OrderItem>> {
   }
 
   double get subtotal => state.fold(0, (sum, item) => sum + item.total);
+  double get itemsDiscountAmount => state.fold(0.0, (sum, item) => sum + item.discountAmount);
+  bool get hasDiscounts => itemsDiscountAmount > 0;
 }
 
 class OrdersNotifier extends StateNotifier<List<Order>> {
@@ -1019,6 +1762,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
   final TextEditingController _customerNameController = TextEditingController();
   final TextEditingController _customerPhoneController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
+  final TextEditingController _discountController = TextEditingController();
   
   String _searchQuery = '';
   double _deliveryCharge = 0.0;
@@ -1043,6 +1787,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     _customerNameController.dispose();
     _customerPhoneController.dispose();
     _searchController.dispose();
+    _discountController.dispose();
     super.dispose();
   }
 
@@ -1062,8 +1807,10 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     final subtotal = currentOrder.fold(0.0, (sum, item) => sum + item.total);
     final charges = _deliveryCharge + _packagingCharge;
     final taxableAmount = subtotal + charges;
-    final tax = taxableAmount * settings.taxRate;
-    final total = taxableAmount + tax;
+    final discount = double.tryParse(_discountController.text) ?? 0.0;
+    final discountedAmount = taxableAmount - discount;
+    final tax = discountedAmount * settings.taxRate;
+    final total = discountedAmount + tax;
 
     return Scaffold(
       appBar: AppBar(
@@ -1525,13 +2272,16 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     final subtotal = currentOrder.fold(0.0, (sum, item) => sum + item.total);
     final charges = _deliveryCharge + _packagingCharge;
     final taxableAmount = subtotal + charges;
-    final tax = taxableAmount * settings.taxRate;
-    final total = taxableAmount + tax;
+    final discount = double.tryParse(_discountController.text) ?? 0.0;
+    final discountedAmount = taxableAmount - discount;
+    final tax = discountedAmount * settings.taxRate;
+    final total = discountedAmount + tax;
 
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => Dialog(
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Container(
           padding: const EdgeInsets.all(24),
@@ -1620,14 +2370,85 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                                                 '${item.orderType.name} • ${formatIndianCurrency(settings.currency, item.unitPrice)} each',
                                                 style: TextStyle(color: Colors.grey[600], fontSize: 12),
                                               ),
+                                              // Show discount info if present
+                                              if (item.hasDiscount) ...[
+                                                const SizedBox(height: 4),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.green[100],
+                                                    borderRadius: BorderRadius.circular(4),
+                                                  ),
+                                                  child: Text(
+                                                    '💸 ${item.discount!.type == DiscountType.percentage ? "${item.discount!.value}% off" : "${formatIndianCurrency(settings.currency, item.discount!.value)} off"}',
+                                                    style: TextStyle(
+                                                      color: Colors.green[700],
+                                                      fontSize: 11,
+                                                      fontWeight: FontWeight.w500,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
                                             ],
                                           ),
                                         ),
-                                        Text('${item.quantity}x', style: const TextStyle(fontWeight: FontWeight.w500)),
-                                        const SizedBox(width: 8),
-                                        Text(
-                                          formatIndianCurrency(settings.currency, item.total),
-                                          style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFF9933)),
+                                        Column(
+                                          crossAxisAlignment: CrossAxisAlignment.end,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Text('${item.quantity}x', style: const TextStyle(fontWeight: FontWeight.w500)),
+                                                const SizedBox(width: 8),
+                                                if (item.hasDiscount) ...[
+                                                  Column(
+                                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                                    children: [
+                                                      Text(
+                                                        formatIndianCurrency(settings.currency, item.subtotal),
+                                                        style: TextStyle(
+                                                          decoration: TextDecoration.lineThrough,
+                                                          color: Colors.grey[600],
+                                                          fontSize: 12,
+                                                        ),
+                                                      ),
+                                                      Text(
+                                                        formatIndianCurrency(settings.currency, item.total),
+                                                        style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFF9933)),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ] else ...[
+                                                  Text(
+                                                    formatIndianCurrency(settings.currency, item.total),
+                                                    style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFF9933)),
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                            // Discount action button
+                                            const SizedBox(height: 4),
+                                            GestureDetector(
+                                              onTap: () => _showItemDiscountDialog(item, index),
+                                              child: Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: item.hasDiscount ? Colors.green[50] : Colors.orange[50],
+                                                  borderRadius: BorderRadius.circular(4),
+                                                  border: Border.all(
+                                                    color: item.hasDiscount ? Colors.green[200]! : Colors.orange[200]!,
+                                                  ),
+                                                ),
+                                                child: Text(
+                                                  item.hasDiscount ? 'Edit Discount' : 'Add Discount',
+                                                  style: TextStyle(
+                                                    color: item.hasDiscount ? Colors.green[700] : Colors.orange[700],
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ],
                                     ),
@@ -1640,12 +2461,46 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                       ),
                     ),
                     const Divider(height: 24),
-                    // Order totals
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    // Order totals with discount breakdown
+                    Column(
                       children: [
-                        const Text('Subtotal:'),
-                        Text(formatIndianCurrency(settings.currency, subtotal)),
+                        // Show item subtotal breakdown if there are discounts
+                        if (ref.read(currentOrderProvider.notifier).hasDiscounts) ...[
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Items Subtotal:'),
+                              Text(formatIndianCurrency(settings.currency, 
+                                currentOrder.fold(0.0, (sum, item) => sum + item.subtotal))),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Item Discounts:', style: TextStyle(color: Colors.green)),
+                              Text('-${formatIndianCurrency(settings.currency, 
+                                ref.read(currentOrderProvider.notifier).itemsDiscountAmount)}',
+                                style: const TextStyle(color: Colors.green)),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('After Item Discounts:'),
+                              Text(formatIndianCurrency(settings.currency, subtotal)),
+                            ],
+                          ),
+                        ] else ...[
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Subtotal:'),
+                              Text(formatIndianCurrency(settings.currency, subtotal)),
+                            ],
+                          ),
+                        ],
                       ],
                     ),
                     
@@ -1678,6 +2533,51 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                       ),
                     ],
                     
+
+                    
+                    // Simple Discount Input
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Expanded(
+                          flex: 2,
+                          child: Text('Discount Amount:', style: TextStyle(fontWeight: FontWeight.w500)),
+                        ),
+                        Expanded(
+                          child: TextField(
+                            controller: _discountController,
+                            keyboardType: TextInputType.number,
+                            textAlign: TextAlign.right,
+                            decoration: InputDecoration(
+                              hintText: '0',
+                              prefixText: '₹',
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                              isDense: true,
+                            ),
+                            style: const TextStyle(fontSize: 14),
+                            onChanged: (value) {
+                              setDialogState(() {}); // Rebuild to update totals
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    
+                    if (discount > 0) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Discount Applied:', style: TextStyle(color: Colors.green)),
+                          Text('-${formatIndianCurrency(settings.currency, discount)}', 
+                               style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w500)),
+                        ],
+                      ),
+                    ],
+                    
                     const SizedBox(height: 4),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1697,6 +2597,8 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                         ),
                       ],
                     ),
+                    
+
                   ],
                 ),
               ),
@@ -1874,9 +2776,38 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
             ),
           ),
         ),
+        ),
       ),
     );
   }
+
+  // Show item discount dialog
+  void _showItemDiscountDialog(OrderItem item, int index) async {
+    final discount = await DiscountDialogs.showItemDiscountDialog(
+      context: context,
+      item: item,
+      existingDiscount: item.discount,
+    );
+    
+    if (discount != null) {
+      if (discount.value == 0) {
+        // Remove discount
+        ref.read(currentOrderProvider.notifier).removeItemDiscount(
+          item.menuItem.id,
+          item.orderType,
+        );
+      } else {
+        // Apply discount
+        ref.read(currentOrderProvider.notifier).applyItemDiscount(
+          item.menuItem.id,
+          item.orderType,
+          discount,
+        );
+      }
+    }
+  }
+
+
 
   void _confirmPlaceOrder() {
     final currentOrder = ref.read(currentOrderProvider);
@@ -1922,10 +2853,11 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     _customerPhoneController.clear();
     _notesController.clear();
     
-    // Reset charges
+    // Reset charges and discount
     setState(() {
       _deliveryCharge = settings.defaultDeliveryCharge;
       _packagingCharge = settings.defaultPackagingCharge;
+      _discountController.clear(); // Reset discount
     });
     
     // Print KOT if enabled
