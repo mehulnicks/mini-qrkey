@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:convert';
 import 'package:fl_chart/fl_chart.dart';
@@ -141,6 +142,12 @@ class AppLocalizations {
       'items_sold': 'Items Sold',
       'top_items': 'Top Items',
       'store': 'Store',
+      'revenue_by_order_type': 'Revenue by Order Type',
+      'order_distribution': 'Order Distribution',
+      'revenue_by_type': 'Revenue by Order Type',
+      'avg_order_by_type': 'Average Order Value by Type',
+      'order_trends': 'Order Type Trends',
+
     },
     'hi': {
       'app_title': 'QSR प्रबंधन',
@@ -271,6 +278,12 @@ class AppLocalizations {
       'items_sold': 'बेचे गए आइटम',
       'top_items': 'टॉप आइटम',
       'store': 'स्टोर',
+      'order_type_analysis': 'ऑर्डर प्रकार विश्लेषण',
+      'order_distribution': 'ऑर्डर वितरण',
+      'revenue_by_type': 'प्रकार के अनुसार राजस्व',
+      'avg_order_by_type': 'प्रकार के अनुसार औसत ऑर्डर मूल्य',
+      'order_trends': 'ऑर्डर प्रकार रुझान',
+
     },
   };
   
@@ -1023,6 +1036,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
   String _searchQuery = '';
   double _deliveryCharge = 0.0;
   double _packagingCharge = 0.0;
+  double _serviceCharge = 0.0;
 
   @override
   void initState() {
@@ -1033,8 +1047,38 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
       setState(() {
         _deliveryCharge = settings.defaultDeliveryCharge;
         _packagingCharge = settings.defaultPackagingCharge;
+        _serviceCharge = 0.0; // Service charge can be set separately
       });
     });
+  }
+
+  // Calculate charges based on order type
+  double _getApplicableCharges(OrderType orderType) {
+    switch (orderType) {
+      case OrderType.dineIn:
+        // Dine-in: No delivery or packaging charges, only service charge may apply
+        return _serviceCharge;
+      case OrderType.takeaway:
+        // Takeaway: Only packaging charges apply
+        return _packagingCharge;
+      case OrderType.delivery:
+        // Home delivery: Both delivery and packaging charges apply
+        return _deliveryCharge + _packagingCharge;
+    }
+  }
+
+  // Phone number validation
+  String? _validatePhoneNumber(String value) {
+    if (value.isEmpty) return null; // Optional field
+    
+    // Remove any non-digit characters for validation
+    String digitsOnly = value.replaceAll(RegExp(r'[^0-9]'), '');
+    
+    if (digitsOnly.length != 10) {
+      return 'Please enter a valid 10-digit phone number';
+    }
+    
+    return null;
   }
 
   @override
@@ -1060,7 +1104,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     }).toList();
 
     final subtotal = currentOrder.fold(0.0, (sum, item) => sum + item.total);
-    final charges = _deliveryCharge + _packagingCharge;
+    final charges = _getApplicableCharges(orderType);
     final taxableAmount = subtotal + charges;
     final tax = taxableAmount * settings.taxRate;
     final total = taxableAmount + tax;
@@ -1523,7 +1567,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     if (currentOrder.isEmpty) return;
 
     final subtotal = currentOrder.fold(0.0, (sum, item) => sum + item.total);
-    final charges = _deliveryCharge + _packagingCharge;
+    final charges = _getApplicableCharges(orderType);
     final taxableAmount = subtotal + charges;
     final tax = taxableAmount * settings.taxRate;
     final total = taxableAmount + tax;
@@ -1534,8 +1578,11 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
       builder: (context) => Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Container(
-          padding: const EdgeInsets.all(24),
-          constraints: const BoxConstraints(maxWidth: 600),
+          padding: EdgeInsets.all(MediaQuery.of(context).size.width < 400 ? 16 : 24),
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width < 400 ? MediaQuery.of(context).size.width * 0.95 : 600,
+            maxHeight: MediaQuery.of(context).size.height * 0.85, // Reduced to fit better
+          ),
           child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1550,23 +1597,31 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                       color: const Color(0xFFFF9933).withOpacity(0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: const Icon(Icons.restaurant, color: Color(0xFFFF9933)),
+                    child: Icon(
+                      Icons.restaurant, 
+                      color: const Color(0xFFFF9933),
+                      size: MediaQuery.of(context).size.width < 400 ? 20 : 24,
+                    ),
                   ),
                   const SizedBox(width: 12),
-                  const Expanded(
+                  Expanded(
                     child: Text(
                       'Order Summary',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: MediaQuery.of(context).size.width < 400 ? 18 : 20, 
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                   IconButton(
                     onPressed: () => Navigator.pop(context),
                     icon: const Icon(Icons.close),
+                    iconSize: MediaQuery.of(context).size.width < 400 ? 20 : 24,
                   ),
                 ],
               ),
               
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
               
               // Order Summary Section
               Container(
@@ -1589,51 +1644,51 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    // Order items list
+                    const SizedBox(height: 12),
+                    // Order items list - compact view
                     ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 200),
+                      constraints: BoxConstraints(
+                        maxHeight: MediaQuery.of(context).size.height < 600 ? 120 : 160,
+                      ),
                       child: ListView.builder(
                         shrinkWrap: true,
                         itemCount: currentOrder.length,
                         itemBuilder: (context, index) {
                           final item = currentOrder[index];
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 4),
-                            child: Card(
-                              margin: const EdgeInsets.symmetric(vertical: 2),
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Column(
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                item.menuItem.name,
-                                                style: const TextStyle(fontWeight: FontWeight.w500),
-                                              ),
-                                              Text(
-                                                '${item.orderType.name} • ${formatIndianCurrency(settings.currency, item.unitPrice)} each',
-                                                style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        Text('${item.quantity}x', style: const TextStyle(fontWeight: FontWeight.w500)),
-                                        const SizedBox(width: 8),
-                                        Text(
-                                          formatIndianCurrency(settings.currency, item.total),
-                                          style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFF9933)),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
+                          return Container(
+                            margin: const EdgeInsets.symmetric(vertical: 2),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: Colors.grey[200]!),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        item.menuItem.name,
+                                        style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      Text(
+                                        '${formatIndianCurrency(settings.currency, item.unitPrice)} each',
+                                        style: TextStyle(color: Colors.grey[600], fontSize: 11),
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                              ),
+                                Text('${item.quantity}x', style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
+                                const SizedBox(width: 8),
+                                Text(
+                                  formatIndianCurrency(settings.currency, item.total),
+                                  style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFFF9933), fontSize: 13),
+                                ),
+                              ],
                             ),
                           );
                         },
@@ -1701,7 +1756,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                 ),
               ),
               
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               
               // Customer Information & Special Instructions Section (Optimized)
               Container(
@@ -1718,9 +1773,15 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                       children: [
                         Icon(Icons.person_outline, color: Colors.grey[700], size: 18),
                         const SizedBox(width: 6),
-                        const Text(
-                          'Customer & Instructions',
-                          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                        Expanded(
+                          child: Text(
+                            'Customer & Instructions',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600, 
+                              fontSize: MediaQuery.of(context).size.width < 400 ? 12 : 14,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                         const SizedBox(width: 6),
                         Container(
@@ -1736,59 +1797,128 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 10),
-                    // Customer fields in a row for compact layout
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _customerNameController,
-                            decoration: InputDecoration(
-                              labelText: 'Customer Name',
-                              prefixIcon: const Icon(Icons.person, size: 18),
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
+                    const SizedBox(height: 8),
+                    // Customer fields - responsive layout
+                    MediaQuery.of(context).size.width < 400 
+                      ? Column(
+                          children: [
+                            TextField(
+                              controller: _customerNameController,
+                              decoration: InputDecoration(
+                                labelText: 'Customer Name',
+                                prefixIcon: const Icon(Icons.person, size: 18),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
+                                ),
+                                filled: true,
+                                fillColor: Colors.white,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                labelStyle: const TextStyle(fontSize: 12),
                               ),
-                              filled: true,
-                              fillColor: Colors.white,
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              labelStyle: const TextStyle(fontSize: 12),
+                              style: const TextStyle(fontSize: 14),
                             ),
-                            style: const TextStyle(fontSize: 14),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: TextField(
-                            controller: _customerPhoneController,
-                            decoration: InputDecoration(
-                              labelText: 'Phone Number',
-                              prefixIcon: const Icon(Icons.phone, size: 18),
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: _customerPhoneController,
+                              decoration: InputDecoration(
+                                labelText: 'Phone Number (10 digits)',
+                                prefixIcon: const Icon(Icons.phone, size: 18),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
+                                ),
+                                errorBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: const BorderSide(color: Colors.red, width: 1),
+                                ),
+                                filled: true,
+                                fillColor: Colors.white,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                labelStyle: const TextStyle(fontSize: 12),
+                                errorText: _customerPhoneController.text.isNotEmpty 
+                                    ? _validatePhoneNumber(_customerPhoneController.text) 
+                                    : null,
                               ),
-                              filled: true,
-                              fillColor: Colors.white,
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              labelStyle: const TextStyle(fontSize: 12),
+                              style: const TextStyle(fontSize: 14),
+                              keyboardType: TextInputType.number,
+                              inputFormatters: [
+                                FilteringTextInputFormatter.digitsOnly,
+                                LengthLimitingTextInputFormatter(10),
+                              ],
+                              onChanged: (value) {
+                                setState(() {}); // Trigger rebuild for validation
+                              },
                             ),
-                            style: const TextStyle(fontSize: 14),
-                            keyboardType: TextInputType.phone,
-                          ),
+                          ],
+                        )
+                      : Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _customerNameController,
+                                decoration: InputDecoration(
+                                  labelText: 'Customer Name',
+                                  prefixIcon: const Icon(Icons.person, size: 18),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
+                                  ),
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  labelStyle: const TextStyle(fontSize: 12),
+                                ),
+                                style: const TextStyle(fontSize: 14),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: TextField(
+                                controller: _customerPhoneController,
+                                decoration: InputDecoration(
+                                  labelText: 'Phone Number (10 digits)',
+                                  prefixIcon: const Icon(Icons.phone, size: 18),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
+                                  ),
+                                  errorBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: const BorderSide(color: Colors.red, width: 1),
+                                  ),
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  labelStyle: const TextStyle(fontSize: 12),
+                                  errorText: _customerPhoneController.text.isNotEmpty 
+                                      ? _validatePhoneNumber(_customerPhoneController.text) 
+                                      : null,
+                                ),
+                                style: const TextStyle(fontSize: 14),
+                                keyboardType: TextInputType.number,
+                                inputFormatters: [
+                                  FilteringTextInputFormatter.digitsOnly,
+                                  LengthLimitingTextInputFormatter(10),
+                                ],
+                                onChanged: (value) {
+                                  setState(() {}); // Trigger rebuild for validation
+                                },
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    // Special instructions field
+                    const SizedBox(height: 8),
+                    // Special instructions field - compact
                     TextField(
                       controller: _notesController,
                       decoration: InputDecoration(
-                        hintText: 'Add special instructions...',
-                        prefixIcon: const Icon(Icons.note_outlined, size: 18),
+                        hintText: 'Special instructions (optional)',
+                        prefixIcon: const Icon(Icons.note_outlined, size: 16),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
@@ -1796,80 +1926,153 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                         ),
                         filled: true,
                         fillColor: Colors.white,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        hintStyle: const TextStyle(fontSize: 12),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        hintStyle: const TextStyle(fontSize: 11),
+                        isDense: true,
                       ),
-                      style: const TextStyle(fontSize: 14),
-                      maxLines: 2,
+                      style: const TextStyle(fontSize: 12),
+                      maxLines: 1,
+                      minLines: 1,
                     ),
                   ],
                 ),
               ),
-              // Actions Section
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Colors.grey),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
+              // Actions Section - responsive layout
+              const SizedBox(height: 12),
+              MediaQuery.of(context).size.width < 400
+                ? Column(
+                    children: [
+                      // Place Order button (full width on mobile)
+                      Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFFFF9933), Color(0xFFFFAD5C)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
                           borderRadius: BorderRadius.circular(10),
                         ),
-                      ),
-                      child: const Text(
-                        'Cancel',
-                        style: TextStyle(color: Colors.grey, fontSize: 16),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    flex: 2,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFFFF9933), Color(0xFFFFAD5C)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: ElevatedButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          _confirmPlaceOrder();
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.transparent,
-                          shadowColor: Colors.transparent,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
+                        child: ElevatedButton(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            _confirmPlaceOrder();
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.transparent,
+                            shadowColor: Colors.transparent,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                              const SizedBox(width: 8),
+                              Flexible(
+                                child: Text(
+                                  'Place Order • ${formatIndianCurrency(settings.currency, total)}',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.check_circle, color: Colors.white, size: 20),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Place Order • ${formatIndianCurrency(settings.currency, total)}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
+                      ),
+                      const SizedBox(height: 8),
+                      // Cancel button
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: Colors.grey),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
                             ),
-                          ],
+                          ),
+                          child: const Text(
+                            'Cancel',
+                            style: TextStyle(color: Colors.grey, fontSize: 16),
+                          ),
                         ),
                       ),
-                    ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: Colors.grey),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          child: const Text(
+                            'Cancel',
+                            style: TextStyle(color: Colors.grey, fontSize: 16),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFFF9933), Color(0xFFFFAD5C)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: ElevatedButton(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              _confirmPlaceOrder();
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              shadowColor: Colors.transparent,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                                const SizedBox(width: 8),
+                                Flexible(
+                                  child: Text(
+                                    'Place Order • ${formatIndianCurrency(settings.currency, total)}',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
             ],
             ),
           ),
@@ -1899,6 +2102,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     final orderCharges = OrderCharges(
       deliveryCharge: orderType == OrderType.delivery ? _deliveryCharge : 0.0,
       packagingCharge: (orderType == OrderType.takeaway || orderType == OrderType.delivery) ? _packagingCharge : 0.0,
+      serviceCharge: orderType == OrderType.dineIn ? _serviceCharge : 0.0,
     );
 
     final newOrder = Order(
@@ -1926,6 +2130,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     setState(() {
       _deliveryCharge = settings.defaultDeliveryCharge;
       _packagingCharge = settings.defaultPackagingCharge;
+      _serviceCharge = 0.0;
     });
     
     // Print KOT if enabled
@@ -1933,32 +2138,12 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
       _printKOT(orderId, currentOrder, customerInfo);
     }
     
-    // Show success message with WhatsApp sharing option
+    // Show success message without WhatsApp sharing
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Order #$orderId placed successfully!'),
         backgroundColor: Colors.green,
-        duration: const Duration(seconds: 4),
-        action: SnackBarAction(
-          label: 'Share WhatsApp',
-          textColor: Colors.white,
-          onPressed: () async {
-            final settings = ref.read(settingsProvider);
-            try {
-              await WhatsAppService.shareBill(
-                order: newOrder,
-                settings: settings,
-              );
-            } catch (e) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Could not open WhatsApp: ${e.toString()}'),
-                  backgroundColor: Colors.red,
-                ),
-              );
-            }
-          },
-        ),
+        duration: const Duration(seconds: 3),
       ),
     );
   }
@@ -3638,7 +3823,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
             children: [
               // Enhanced Header with Filters
               Container(
-                padding: const EdgeInsets.all(20),
+                padding: EdgeInsets.all(MediaQuery.of(context).size.width < 400 ? 16 : 20),
                 child: Column(
                   children: [
                     Row(
@@ -3648,10 +3833,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
+                              Text(
                                 'Sales Analytics',
                                 style: TextStyle(
-                                  fontSize: 22,
+                                  fontSize: MediaQuery.of(context).size.width < 400 ? 18 : 22,
                                   fontWeight: FontWeight.bold,
                                   color: Colors.white,
                                 ),
@@ -3680,10 +3865,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 20),
+                    SizedBox(height: MediaQuery.of(context).size.width < 400 ? 16 : 20),
                     // Enhanced Filter Chips Section
                     Container(
-                      padding: const EdgeInsets.all(20),
+                      padding: EdgeInsets.all(MediaQuery.of(context).size.width < 400 ? 16 : 20),
                       decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(20),
@@ -3760,7 +3945,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                     children: [
                       Expanded(
                         child: SingleChildScrollView(
-                          padding: const EdgeInsets.all(20),
+                          padding: EdgeInsets.all(MediaQuery.of(context).size.width < 400 ? 16 : 20),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -3811,10 +3996,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                                     GridView.count(
                                       shrinkWrap: true,
                                       physics: const NeverScrollableScrollPhysics(),
-                                      crossAxisCount: 3,
-                                      mainAxisSpacing: 12,
-                                      crossAxisSpacing: 12,
-                                      childAspectRatio: 1.1,
+                                      crossAxisCount: MediaQuery.of(context).size.width < 600 ? 2 : 3,
+                                      mainAxisSpacing: MediaQuery.of(context).size.width < 400 ? 8 : 12,
+                                      crossAxisSpacing: MediaQuery.of(context).size.width < 400 ? 8 : 12,
+                                      childAspectRatio: MediaQuery.of(context).size.width < 400 ? 1.2 : 1.1,
                                       children: [
                                         _buildMetricCard(
                                           'Total Orders',
@@ -3859,7 +4044,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                               
                               const SizedBox(height: 20),
                               
-                              // Enhanced Top 5 Items Section
+                              // Top Items Section Removed - Only Revenue by Order Type Shown
+                              /*
                               Container(
                                 padding: const EdgeInsets.all(16),
                                 decoration: BoxDecoration(
@@ -3978,6 +4164,12 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                                   ],
                                 ),
                               ),
+                              */
+                              
+                              const SizedBox(height: 20),
+                              
+                              // Revenue by Order Type Section
+                              ..._buildOrderTypeAnalysis(filteredOrders, settings),
                             ],
                           ),
                         ),
@@ -3992,6 +4184,213 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       ),
     );
   }
+
+  // Revenue by Order Type Methods
+  List<Widget> _buildOrderTypeAnalysis(List<Order> filteredOrders, AppSettings settings) {
+    // Calculate order type statistics
+    final orderTypeStats = _calculateOrderTypeStats(filteredOrders);
+    
+    return [
+      // Revenue by Order Type - Simplified Report
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Colors.green.withOpacity(0.05),
+              Colors.white,
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.green.withOpacity(0.2)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.green.withOpacity(0.1),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.bar_chart,
+                    color: Colors.green,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  l10n(ref, 'revenue_by_type'),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            
+            // Revenue Bar Chart
+            Container(
+              height: 200,
+              child: _buildRevenueBarChart(orderTypeStats, settings),
+            ),
+          ],
+        ),
+      ),
+    ];
+  }
+
+  Map<OrderType, Map<String, dynamic>> _calculateOrderTypeStats(List<Order> orders) {
+    final stats = <OrderType, Map<String, dynamic>>{
+      OrderType.dineIn: {
+        'count': 0,
+        'revenue': 0.0,
+        'items': 0,
+        'avgOrder': 0.0,
+        'percentage': 0.0,
+        'color': Colors.blue,
+        'icon': Icons.restaurant,
+        'label': 'Dine In',
+        'emoji': '🍽️',
+      },
+      OrderType.takeaway: {
+        'count': 0,
+        'revenue': 0.0,
+        'items': 0,
+        'avgOrder': 0.0,
+        'percentage': 0.0,
+        'color': Colors.orange,
+        'icon': Icons.takeout_dining,
+        'label': 'Takeaway',
+        'emoji': '🥡',
+      },
+      OrderType.delivery: {
+        'count': 0,
+        'revenue': 0.0,
+        'items': 0,
+        'avgOrder': 0.0,
+        'percentage': 0.0,
+        'color': Colors.green,
+        'icon': Icons.delivery_dining,
+        'label': 'Delivery',
+        'emoji': '🚚',
+      },
+    };
+
+    final totalOrders = orders.length;
+    
+    for (final order in orders) {
+      final type = order.type;
+      stats[type]!['count']++;
+      stats[type]!['revenue'] += order.grandTotal;
+      stats[type]!['items'] += order.items.fold(0, (sum, item) => sum + item.quantity);
+    }
+    
+    // Calculate averages and percentages
+    for (final type in OrderType.values) {
+      final count = stats[type]!['count'] as int;
+      final revenue = stats[type]!['revenue'] as double;
+      
+      stats[type]!['avgOrder'] = count > 0 ? revenue / count : 0.0;
+      stats[type]!['percentage'] = totalOrders > 0 ? (count / totalOrders) * 100 : 0.0;
+    }
+    
+    return stats;
+  }
+
+
+
+
+
+  Widget _buildRevenueBarChart(Map<OrderType, Map<String, dynamic>> stats, AppSettings settings) {
+    final maxRevenue = stats.values
+        .map((data) => data['revenue'] as double)
+        .fold(0.0, (max, revenue) => revenue > max ? revenue : max);
+
+    return Column(
+      children: stats.entries.map((entry) {
+        final revenue = entry.value['revenue'] as double;
+        final color = entry.value['color'] as Color;
+        final label = entry.value['label'] as String;
+        final emoji = entry.value['emoji'] as String;
+        final percentage = maxRevenue > 0 ? (revenue / maxRevenue) : 0.0;
+        
+        return Container(
+          margin: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  SizedBox(
+                    width: 80,
+                    child: Text(
+                      '$emoji $label',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Container(
+                      height: 20,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[200],
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: FractionallySizedBox(
+                        alignment: Alignment.centerLeft,
+                        widthFactor: percentage,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [color, color.withOpacity(0.7)],
+                              begin: Alignment.centerLeft,
+                              end: Alignment.centerRight,
+                            ),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 80,
+                    child: Text(
+                      formatIndianCurrency(settings.currency, revenue),
+                      textAlign: TextAlign.end,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+
 
   void _showKOTSummaryDialog(BuildContext context, List<Order> orders, String businessName) {
     final dateRange = '${_formatKOTTimestamp(_startDate)} to ${_formatKOTTimestamp(_endDate)}';
@@ -4146,8 +4545,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   // Enhanced Report Helper Methods
   Widget _buildFilterChip(String label, ReportFilter filter) {
     final isSelected = _selectedFilter == filter;
+    final isMobile = MediaQuery.of(context).size.width < 400;
+    
     return Container(
-      margin: const EdgeInsets.only(right: 8),
+      margin: EdgeInsets.only(right: isMobile ? 6 : 8),
       child: Material(
         elevation: isSelected ? 4 : 2,
         borderRadius: BorderRadius.circular(10),
@@ -4156,7 +4557,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           onTap: () => _applyFilter(filter),
           borderRadius: BorderRadius.circular(10),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: EdgeInsets.symmetric(
+              horizontal: isMobile ? 10 : 12, 
+              vertical: isMobile ? 6 : 8,
+            ),
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: isSelected 
@@ -4176,7 +4580,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               style: TextStyle(
                 color: isSelected ? Colors.white : const Color(0xFF2C3E50),
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.w700,
-                fontSize: 13,
+                fontSize: isMobile ? 11 : 13,
                 letterSpacing: 0.5,
               ),
             ),
@@ -4222,9 +4626,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   }
 
   Widget _buildMetricCard(String title, String value, IconData icon, Color color, String subtitle) {
+    final isMobile = MediaQuery.of(context).size.width < 400;
+    
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(isMobile ? 12 : 16),
         gradient: LinearGradient(
           colors: [
             color.withOpacity(0.1),
@@ -4237,61 +4643,71 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         boxShadow: [
           BoxShadow(
             color: color.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
+            blurRadius: isMobile ? 4 : 8,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: EdgeInsets.all(isMobile ? 8 : 12),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              padding: const EdgeInsets.all(6),
+              padding: EdgeInsets.all(isMobile ? 4 : 6),
               decoration: BoxDecoration(
                 color: color.withOpacity(0.15),
                 borderRadius: BorderRadius.circular(6),
               ),
-              child: Icon(icon, size: 18, color: color),
+              child: Icon(icon, size: isMobile ? 14 : 18, color: color),
             ),
-            const SizedBox(height: 6),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                value,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: color,
+            SizedBox(height: isMobile ? 4 : 6),
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: isMobile ? 12 : 16,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
                 ),
-                textAlign: TextAlign.center,
               ),
             ),
-            const SizedBox(height: 3),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black87,
+            SizedBox(height: isMobile ? 2 : 3),
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: isMobile ? 9 : 11,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
                 ),
-                textAlign: TextAlign.center,
               ),
             ),
-            const SizedBox(height: 1),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                subtitle,
-                style: TextStyle(
-                  fontSize: 9,
-                  color: Colors.grey[600],
+            SizedBox(height: isMobile ? 1 : 1),
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: isMobile ? 7 : 9,
+                    color: Colors.grey[600],
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                textAlign: TextAlign.center,
               ),
             ),
           ],
@@ -4442,58 +4858,108 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   void _exportToCSV(BuildContext context, List<Order> orders, AppSettings settings) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            const Icon(Icons.file_download, color: Color(0xFFFF9933)),
-            const SizedBox(width: 8),
-            const Text('Export Order Reports'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Choose the type of report to export for the selected period:',
-              style: TextStyle(color: Colors.grey[600]),
-            ),
-            const SizedBox(height: 20),
-            _buildExportOption(
-              context,
-              'Complete Order Report',
-              'Detailed report with all order information',
-              Icons.receipt_long,
-              () => _exportCompleteOrderReport(context, orders, settings),
-            ),
-            const SizedBox(height: 12),
-            _buildExportOption(
-              context,
-              'Sales Summary',
-              'Summary of sales metrics and totals',
-              Icons.analytics,
-              () => _exportSalesSummary(context, orders, settings),
-            ),
-            const SizedBox(height: 12),
-            _buildExportOption(
-              context,
-              'Item-wise Report',
-              'Breakdown by menu items sold',
-              Icons.inventory_2,
-              () => _exportItemwiseReport(context, orders, settings),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(
+          padding: EdgeInsets.all(MediaQuery.of(context).size.width < 400 ? 16 : 24),
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width < 400 ? MediaQuery.of(context).size.width * 0.9 : 400,
+            maxHeight: MediaQuery.of(context).size.height * 0.7,
           ),
-        ],
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF9933).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.file_download, color: Color(0xFFFF9933), size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Export Reports',
+                      style: TextStyle(
+                        fontSize: MediaQuery.of(context).size.width < 400 ? 16 : 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                    iconSize: 20,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Choose the type of report to export:',
+                style: TextStyle(
+                  color: Colors.grey[600],
+                  fontSize: MediaQuery.of(context).size.width < 400 ? 12 : 14,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      _buildExportOption(
+                        context,
+                        'Complete Order Report',
+                        'Detailed report with all order information',
+                        Icons.receipt_long,
+                        () => _exportCompleteOrderReport(context, orders, settings),
+                      ),
+                      const SizedBox(height: 12),
+                      _buildExportOption(
+                        context,
+                        'Sales Summary',
+                        'Summary of sales metrics and totals',
+                        Icons.analytics,
+                        () => _exportSalesSummary(context, orders, settings),
+                      ),
+                      const SizedBox(height: 12),
+                      _buildExportOption(
+                        context,
+                        'Item-wise Report',
+                        'Breakdown by menu items sold',
+                        Icons.inventory_2,
+                        () => _exportItemwiseReport(context, orders, settings),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Text('Cancel'),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
   Widget _buildExportOption(BuildContext context, String title, String subtitle, IconData icon, VoidCallback onTap) {
+    final isMobile = MediaQuery.of(context).size.width < 400;
+    
     return InkWell(
       onTap: () {
         Navigator.pop(context);
@@ -4501,7 +4967,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       },
       borderRadius: BorderRadius.circular(8),
       child: Container(
-        padding: const EdgeInsets.all(12),
+        padding: EdgeInsets.all(isMobile ? 10 : 12),
         decoration: BoxDecoration(
           border: Border.all(color: Colors.grey[300]!),
           borderRadius: BorderRadius.circular(8),
@@ -4509,36 +4975,36 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         child: Row(
           children: [
             Container(
-              padding: const EdgeInsets.all(8),
+              padding: EdgeInsets.all(isMobile ? 6 : 8),
               decoration: BoxDecoration(
                 color: const Color(0xFFFF9933).withOpacity(0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(icon, color: const Color(0xFFFF9933), size: 20),
+              child: Icon(icon, color: const Color(0xFFFF9933), size: isMobile ? 18 : 20),
             ),
-            const SizedBox(width: 12),
+            SizedBox(width: isMobile ? 10 : 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontWeight: FontWeight.bold,
-                      fontSize: 14,
+                      fontSize: isMobile ? 13 : 14,
                     ),
                   ),
                   Text(
                     subtitle,
                     style: TextStyle(
                       color: Colors.grey[600],
-                      fontSize: 12,
+                      fontSize: isMobile ? 11 : 12,
                     ),
                   ),
                 ],
               ),
             ),
-            const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+            Icon(Icons.arrow_forward_ios, size: isMobile ? 14 : 16, color: Colors.grey),
           ],
         ),
       ),
@@ -4680,58 +5146,153 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   void _showExportDialog(BuildContext context, String title, String content) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            const Icon(Icons.file_download, color: Color(0xFFFF9933)),
-            const SizedBox(width: 8),
-            Expanded(child: Text(title, style: const TextStyle(fontSize: 16))),
-          ],
-        ),
-        content: Container(
-          width: double.maxFinite,
-          constraints: const BoxConstraints(maxHeight: 400),
-          child: SingleChildScrollView(
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey[300]!),
-                borderRadius: BorderRadius.circular(8),
-                color: Colors.grey[50],
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(
+          padding: EdgeInsets.all(MediaQuery.of(context).size.width < 400 ? 16 : 20),
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width < 400 ? MediaQuery.of(context).size.width * 0.95 : 500,
+            maxHeight: MediaQuery.of(context).size.height * 0.8,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF9933).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.file_download, color: Color(0xFFFF9933), size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: MediaQuery.of(context).size.width < 400 ? 14 : 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                    iconSize: 20,
+                  ),
+                ],
               ),
-              child: Text(
-                content,
-                style: const TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 10,
+              const SizedBox(height: 16),
+              Expanded(
+                child: Container(
+                  width: double.infinity,
+                  padding: EdgeInsets.all(MediaQuery.of(context).size.width < 400 ? 8 : 12),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey[300]!),
+                    borderRadius: BorderRadius.circular(8),
+                    color: Colors.grey[50],
+                  ),
+                  child: SingleChildScrollView(
+                    child: Text(
+                      content,
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: MediaQuery.of(context).size.width < 400 ? 8 : 10,
+                      ),
+                    ),
+                  ),
                 ),
               ),
-            ),
+              const SizedBox(height: 16),
+              MediaQuery.of(context).size.width < 400
+                ? Column(
+                    children: [
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('$title ready for download'),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                            Navigator.pop(context);
+                          },
+                          icon: const Icon(Icons.download, size: 18),
+                          label: const Text('Download Report'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFFF9933),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          child: const Text('Close'),
+                        ),
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          child: const Text('Close'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('$title ready for download'),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                            Navigator.pop(context);
+                          },
+                          icon: const Icon(Icons.download, size: 18),
+                          label: const Text('Download'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFFF9933),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+            ],
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-          ElevatedButton.icon(
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('$title ready for download'),
-                  backgroundColor: Colors.green,
-                ),
-              );
-              Navigator.pop(context);
-            },
-            icon: const Icon(Icons.download),
-            label: const Text('Download'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFFF9933),
-              foregroundColor: Colors.white,
-            ),
-          ),
-        ],
       ),
     );
   }
