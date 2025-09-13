@@ -147,6 +147,20 @@ class AppLocalizations {
       'revenue_by_type': 'Revenue by Order Type',
       'avg_order_by_type': 'Average Order Value by Type',
       'order_trends': 'Order Type Trends',
+      'discount': 'Discount',
+      'item_discount': 'Item Discount',
+      'order_discount': 'Order Discount',
+      'total_discount': 'Total Discount',
+      'savings': 'Savings',
+      'discount_percentage': 'Discount %',
+      'discount_amount': 'Discount Amount',
+      'original_price': 'Original Price',
+      'discounted_price': 'Discounted Price',
+      'before_discount': 'Before Discount',
+      'after_discount': 'After Discount',
+      'discount_reason': 'Discount Reason',
+      'discount_applied': 'Discount Applied',
+      'no_discount': 'No Discount',
 
     },
     'hi': {
@@ -283,6 +297,20 @@ class AppLocalizations {
       'revenue_by_type': 'प्रकार के अनुसार राजस्व',
       'avg_order_by_type': 'प्रकार के अनुसार औसत ऑर्डर मूल्य',
       'order_trends': 'ऑर्डर प्रकार रुझान',
+      'discount': 'छूट',
+      'item_discount': 'आइटम छूट',
+      'order_discount': 'ऑर्डर छूट',
+      'total_discount': 'कुल छूट',
+      'savings': 'बचत',
+      'discount_percentage': 'छूट %',
+      'discount_amount': 'छूट राशि',
+      'original_price': 'मूल मूल्य',
+      'discounted_price': 'छूट के बाद मूल्य',
+      'before_discount': 'छूट से पहले',
+      'after_discount': 'छूट के बाद',
+      'discount_reason': 'छूट कारण',
+      'discount_applied': 'छूट लागू',
+      'no_discount': 'कोई छूट नहीं',
 
     },
   };
@@ -1483,6 +1511,9 @@ final settingsProvider = StateNotifierProvider<SettingsNotifier, AppSettings>((r
 
 final orderTypeProvider = StateProvider<OrderType>((ref) => OrderType.dineIn);
 
+// Current order discount provider
+final currentOrderDiscountProvider = StateProvider<OrderDiscount?>((ref) => null);
+
 // Language provider that syncs with settings
 final currentLanguageProvider = Provider<String>((ref) {
   final settings = ref.watch(settingsProvider);
@@ -1825,6 +1856,29 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     return null;
   }
 
+  // Get discount display text
+  String _getDiscountDisplayText() {
+    final orderDiscount = ref.read(currentOrderDiscountProvider);
+    if (orderDiscount == null) {
+      return 'Add Order Discount';
+    }
+    
+    final currentOrder = ref.read(currentOrderProvider);
+    final orderType = ref.read(orderTypeProvider);
+    final subtotal = currentOrder.fold(0.0, (sum, item) => sum + item.total);
+    final charges = _getApplicableCharges(orderType);
+    final taxableAmount = subtotal + charges;
+    
+    final baseAmount = orderDiscount.applyToSubtotal ? subtotal : taxableAmount;
+    final discountAmount = orderDiscount.calculateDiscount(baseAmount);
+    
+    if (orderDiscount.type == DiscountType.percentage) {
+      return 'Order Discount: ${orderDiscount.value.toStringAsFixed(0)}% (-₹${discountAmount.toStringAsFixed(2)})';
+    } else {
+      return 'Order Discount: -₹${discountAmount.toStringAsFixed(2)}';
+    }
+  }
+
   @override
   void dispose() {
     _notesController.dispose();
@@ -1851,10 +1905,40 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     final subtotal = currentOrder.fold(0.0, (sum, item) => sum + item.total);
     final charges = _getApplicableCharges(orderType);
     final taxableAmount = subtotal + charges;
-    final discount = double.tryParse(_discountController.text) ?? 0.0;
-    final discountedAmount = taxableAmount - discount;
-    final tax = discountedAmount * settings.taxRate;
-    final total = discountedAmount + tax;
+    
+    // Calculate order discount
+    final orderDiscount = ref.watch(currentOrderDiscountProvider);
+    double discountAmount = 0.0;
+    if (orderDiscount != null) {
+      final baseAmount = orderDiscount.applyToSubtotal ? subtotal : taxableAmount;
+      discountAmount = orderDiscount.calculateDiscount(baseAmount);
+    }
+    
+    // Calculate final amounts
+    double discountedAmount;
+    double tax;
+    double total;
+    
+    if (orderDiscount?.applyToSubtotal == true) {
+      // Discount applied to subtotal, then add charges and calculate tax
+      final discountedSubtotal = subtotal - discountAmount;
+      discountedAmount = discountedSubtotal + charges;
+      tax = discountedAmount * settings.taxRate;
+      total = discountedAmount + tax;
+    } else if (orderDiscount != null) {
+      // Discount applied to taxable amount
+      discountedAmount = taxableAmount - discountAmount;
+      tax = discountedAmount * settings.taxRate;
+      total = discountedAmount + tax;
+    } else {
+      // No discount
+      discountedAmount = taxableAmount;
+      tax = discountedAmount * settings.taxRate;
+      total = discountedAmount + tax;
+    }
+    
+    // Keep discount variable for display compatibility
+    final discount = discountAmount;
 
     return Scaffold(
       appBar: AppBar(
@@ -2308,36 +2392,68 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
 
   void _placeOrder() {
     final currentOrder = ref.read(currentOrderProvider);
-    final orderType = ref.read(orderTypeProvider);
-    final settings = ref.read(settingsProvider);
 
     if (currentOrder.isEmpty) return;
-
-    final subtotal = currentOrder.fold(0.0, (sum, item) => sum + item.total);
-    final charges = _getApplicableCharges(orderType);
-    final taxableAmount = subtotal + charges;
-    final discount = double.tryParse(_discountController.text) ?? 0.0;
-    final discountedAmount = taxableAmount - discount;
-    final tax = discountedAmount * settings.taxRate;
-    final total = discountedAmount + tax;
 
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Container(
-          padding: EdgeInsets.all(MediaQuery.of(context).size.width < 400 ? 16 : 24),
-          constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width < 400 ? MediaQuery.of(context).size.width * 0.95 : 600,
-            maxHeight: MediaQuery.of(context).size.height * 0.85, // Reduced to fit better
-          ),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+      builder: (context) => Consumer(
+        builder: (context, ref, child) {
+          final orderType = ref.watch(orderTypeProvider);
+          final settings = ref.watch(settingsProvider);
+          final orderDiscount = ref.watch(currentOrderDiscountProvider);
+          
+          final subtotal = currentOrder.fold(0.0, (sum, item) => sum + item.total);
+          final charges = _getApplicableCharges(orderType);
+          final taxableAmount = subtotal + charges;
+          
+          // Calculate order discount
+          double discountAmount = 0.0;
+          if (orderDiscount != null) {
+            final baseAmount = orderDiscount.applyToSubtotal ? subtotal : taxableAmount;
+            discountAmount = orderDiscount.calculateDiscount(baseAmount);
+          }
+          
+          // Calculate final amounts
+          double discountedAmount;
+          double tax;
+          double total;
+          
+          if (orderDiscount?.applyToSubtotal == true) {
+            // Discount applied to subtotal, then add charges and calculate tax
+            final discountedSubtotal = subtotal - discountAmount;
+            discountedAmount = discountedSubtotal + charges;
+            tax = discountedAmount * settings.taxRate;
+            total = discountedAmount + tax;
+          } else if (orderDiscount != null) {
+            // Discount applied to taxable amount
+            discountedAmount = taxableAmount - discountAmount;
+            tax = discountedAmount * settings.taxRate;
+            total = discountedAmount + tax;
+          } else {
+            // No discount
+            discountedAmount = taxableAmount;
+            tax = discountedAmount * settings.taxRate;
+            total = discountedAmount + tax;
+          }
+          
+          // Keep discount variable for dialog display
+          final discount = discountAmount;
+
+          return Dialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Container(
+              padding: EdgeInsets.all(MediaQuery.of(context).size.width < 400 ? 16 : 24),
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width < 400 ? MediaQuery.of(context).size.width * 0.95 : 600,
+                maxHeight: MediaQuery.of(context).size.height * 0.85, // Reduced to fit better
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
               // Header
               Row(
                 children: [
@@ -2590,49 +2706,98 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                       ),
                     ],
                     
-
-                    
-                    // Simple Discount Input
+                    // Advanced Order Discount Section
                     const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        const Expanded(
-                          flex: 2,
-                          child: Text('Discount Amount:', style: TextStyle(fontWeight: FontWeight.w500)),
+                    GestureDetector(
+                      onTap: () => _showOrderDiscountDialog(),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey[300]!),
+                          borderRadius: BorderRadius.circular(8),
+                          color: discount > 0 ? Colors.green[50] : Colors.grey[50],
                         ),
-                        Expanded(
-                          child: TextField(
-                            controller: _discountController,
-                            keyboardType: TextInputType.number,
-                            textAlign: TextAlign.right,
-                            decoration: InputDecoration(
-                              hintText: '0',
-                              prefixText: '₹',
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                              isDense: true,
+                        child: Row(
+                          children: [
+                            Icon(
+                              discount > 0 ? Icons.local_offer : Icons.add,
+                              size: 16,
+                              color: discount > 0 ? Colors.green[700] : Colors.grey[600],
                             ),
-                            style: const TextStyle(fontSize: 14),
-                            onChanged: (value) {
-                              setDialogState(() {}); // Rebuild to update totals
-                            },
-                          ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _getDiscountDisplayText(),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w500,
+                                  color: discount > 0 ? Colors.green[700] : Colors.grey[700],
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                            Icon(
+                              Icons.edit,
+                              size: 14,
+                              color: Colors.grey[600],
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                     
+                    // Show order discount if applied
                     if (discount > 0) ...[
                       const SizedBox(height: 4),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text('Discount Applied:', style: TextStyle(color: Colors.green)),
+                          Text('Order Discount (${orderDiscount!.type == DiscountType.percentage ? "${orderDiscount.value.toStringAsFixed(0)}%" : formatIndianCurrency(settings.currency, orderDiscount.value)}):', 
+                               style: const TextStyle(color: Colors.green)),
                           Text('-${formatIndianCurrency(settings.currency, discount)}', 
                                style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w500)),
                         ],
                       ),
+                      if (orderDiscount.reason != null && orderDiscount.reason!.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text('  (${orderDiscount.reason})', 
+                                   style: TextStyle(color: Colors.green[600], fontSize: 12, fontStyle: FontStyle.italic)),
+                            ),
+                          ],
+                        ),
+                      ],
+                      const SizedBox(height: 4),
+                      // Show discounted subtotal/taxable amount
+                      if (orderDiscount.applyToSubtotal) ...[
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Discounted Subtotal:'),
+                            Text(formatIndianCurrency(settings.currency, subtotal - discount)),
+                          ],
+                        ),
+                        if (charges > 0) ...[
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('After Charges:'),
+                              Text(formatIndianCurrency(settings.currency, (subtotal - discount) + charges)),
+                            ],
+                          ),
+                        ],
+                      ] else ...[
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Discounted Amount:'),
+                            Text(formatIndianCurrency(settings.currency, discountedAmount)),
+                          ],
+                        ),
+                      ],
                     ],
                     
                     const SizedBox(height: 4),
@@ -2977,11 +3142,12 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                       ),
                     ],
                   ),
-            ],
+                  ],
+                ),
+              ),
             ),
-          ),
-        ),
-        ),
+          );
+        },
       ),
     );
   }
@@ -3012,6 +3178,55 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     }
   }
 
+  // Show order discount dialog
+  void _showOrderDiscountDialog() async {
+    final currentOrder = ref.read(currentOrderProvider);
+    final orderType = ref.read(orderTypeProvider);
+    final settings = ref.read(settingsProvider);
+    
+    // Create a temporary order to show in discount dialog
+    final subtotal = currentOrder.fold(0.0, (sum, item) => sum + item.total);
+    final charges = OrderCharges(
+      deliveryCharge: orderType == OrderType.delivery ? _deliveryCharge : 0.0,
+      packagingCharge: (orderType == OrderType.takeaway || orderType == OrderType.delivery) ? _packagingCharge : 0.0,
+      serviceCharge: orderType == OrderType.dineIn ? _serviceCharge : 0.0,
+    );
+    
+    final tempOrder = Order(
+      id: 'temp',
+      items: currentOrder,
+      createdAt: DateTime.now(),
+      type: orderType,
+      charges: charges,
+    );
+    
+    // Get current discount from provider
+    final currentDiscount = ref.read(currentOrderDiscountProvider);
+    
+    final discount = await DiscountDialogs.showOrderDiscountDialog(
+      context: context,
+      order: tempOrder,
+      existingDiscount: currentDiscount,
+    );
+    
+    if (discount != null) {
+      // Update the discount provider - this will automatically trigger UI rebuild
+      ref.read(currentOrderDiscountProvider.notifier).state = discount.value == 0 ? null : discount;
+      
+      // Update the simple discount controller for backward compatibility and display
+      setState(() {
+        if (discount.value == 0) {
+          _discountController.clear();
+        } else {
+          // Calculate discount amount for display
+          final baseAmount = discount.applyToSubtotal ? tempOrder.subtotal : tempOrder.taxableAmount;
+          final discountAmount = discount.calculateDiscount(baseAmount);
+          _discountController.text = discountAmount.toStringAsFixed(2);
+        }
+      });
+    }
+  }
+
 
 
   void _confirmPlaceOrder() {
@@ -3038,6 +3253,9 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
       serviceCharge: orderType == OrderType.dineIn ? _serviceCharge : 0.0,
     );
 
+    // Get current order discount
+    final orderDiscount = ref.read(currentOrderDiscountProvider);
+
     final newOrder = Order(
       id: orderId,
       items: currentOrder,
@@ -3048,6 +3266,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
       customer: customerInfo,
       charges: orderCharges,
       kotPrinted: settings.kotEnabled,
+      orderDiscount: orderDiscount,
     );
     
     // Add order to the orders provider
@@ -3055,6 +3274,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     
     // Clear current order and form
     ref.read(currentOrderProvider.notifier).clearOrder();
+    ref.read(currentOrderDiscountProvider.notifier).state = null; // Clear order discount
     _customerNameController.clear();
     _customerPhoneController.clear();
     _notesController.clear();
@@ -3535,19 +3755,60 @@ class OrderHistoryScreen extends ConsumerWidget {
                   const SizedBox(height: 8),
                   ...order.items.take(2).map((item) => Padding(
                     padding: const EdgeInsets.only(bottom: 4),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    child: Column(
                       children: [
-                        Expanded(
-                          child: Text(
-                            '${item.quantity}x ${item.menuItem.name}',
-                            style: const TextStyle(fontSize: 13),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${item.quantity}x ${item.menuItem.name}',
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                            ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                if (item.hasDiscount) ...[
+                                  Text(
+                                    '₹${item.subtotal.toStringAsFixed(2)}',
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      decoration: TextDecoration.lineThrough,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                ],
+                                Text(
+                                  '₹${item.total.toStringAsFixed(2)}',
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                        if (item.hasDiscount) ...[
+                          const SizedBox(height: 2),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              Icon(
+                                Icons.discount,
+                                size: 10,
+                                color: Colors.green[600],
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                '-₹${item.discountAmount.toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.green[600],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                        Text(
-                          '₹${item.total.toStringAsFixed(2)}',
-                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-                        ),
+                        ],
                       ],
                     ),
                   )).toList(),
@@ -3587,6 +3848,27 @@ class OrderHistoryScreen extends ConsumerWidget {
                         color: Color(0xFFFF9933),
                       ),
                     ),
+                    if (order.hasDiscounts) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.local_offer,
+                            size: 12,
+                            color: Colors.green[600],
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${l10n(ref, 'savings')}: ₹${order.totalDiscountAmount.toStringAsFixed(2)}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.green[600],
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
                 isActive 
@@ -3851,19 +4133,92 @@ class OrderHistoryScreen extends ConsumerWidget {
               const SizedBox(height: 16),
               const Text('Items:', style: TextStyle(fontWeight: FontWeight.bold)),
               ...order.items.map((item) => Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text('${item.quantity}x ${item.menuItem.name} - ₹${item.total.toStringAsFixed(2)}'),
+                padding: const EdgeInsets.only(top: 4, bottom: 4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text('${item.quantity}x ${item.menuItem.name}'),
+                        ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            if (item.hasDiscount) ...[
+                              Text(
+                                '₹${item.subtotal.toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                  decoration: TextDecoration.lineThrough,
+                                  color: Colors.grey,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              Text(
+                                '-₹${item.discountAmount.toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                  color: Colors.green,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                            Text(
+                              '₹${item.total.toStringAsFixed(2)}',
+                              style: const TextStyle(fontWeight: FontWeight.w500),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    if (item.hasDiscount && item.discount?.reason != null)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 16, top: 2),
+                        child: Text(
+                          'Discount: ${item.discount!.reason}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               )).toList(),
               const SizedBox(height: 16),
               const Text('Bill Breakdown:', style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
+              
+              // Items subtotal
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Subtotal:'),
-                  Text('₹${order.subtotal.toStringAsFixed(2)}'),
+                  const Text('Items Subtotal:'),
+                  Text('₹${order.itemsSubtotal.toStringAsFixed(2)}'),
                 ],
               ),
+              
+              // Item-level discounts
+              if (order.hasItemDiscounts) ...[
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Item Discounts:', style: TextStyle(color: Colors.green)),
+                    Text('-₹${order.itemsDiscountAmount.toStringAsFixed(2)}', 
+                         style: const TextStyle(color: Colors.green)),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('After Item Discounts:'),
+                    Text('₹${order.itemsTotal.toStringAsFixed(2)}'),
+                  ],
+                ),
+              ],
               // Show delivery charge if delivery order
               if (order.type == OrderType.delivery && order.charges.deliveryCharge > 0) ...[
                 const SizedBox(height: 4),
@@ -3897,7 +4252,38 @@ class OrderHistoryScreen extends ConsumerWidget {
                   ],
                 ),
               ],
-              const SizedBox(height: 4),
+              
+              // Order-level discount
+              if (order.hasOrderDiscount) ...[
+                const SizedBox(height: 8),
+                const Divider(height: 1),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Order Discount (${order.orderDiscount!.type == DiscountType.percentage ? '${order.orderDiscount!.value.toStringAsFixed(0)}%' : 'Fixed'}):',
+                         style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w500)),
+                    Text('-₹${order.orderDiscountAmount.toStringAsFixed(2)}', 
+                         style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w500)),
+                  ],
+                ),
+                if (order.orderDiscount?.reason != null) ...[
+                  const SizedBox(height: 2),
+                  Text('  ${order.orderDiscount!.reason}', 
+                       style: const TextStyle(fontSize: 12, color: Colors.grey, fontStyle: FontStyle.italic)),
+                ],
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('After Order Discount:', style: const TextStyle(fontWeight: FontWeight.w500)),
+                    Text('₹${order.discountedAmount.toStringAsFixed(2)}', 
+                         style: const TextStyle(fontWeight: FontWeight.w500)),
+                  ],
+                ),
+              ],
+              
+              const SizedBox(height: 8),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -3906,6 +4292,20 @@ class OrderHistoryScreen extends ConsumerWidget {
                 ],
               ),
               const Divider(height: 16),
+              
+              // Show total savings if any discounts
+              if (order.hasDiscounts) ...[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Total Savings:', style: TextStyle(color: Colors.green, fontWeight: FontWeight.w500, fontSize: 15)),
+                    Text('₹${order.totalDiscountAmount.toStringAsFixed(2)}', 
+                         style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w500, fontSize: 15)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+              ],
+              
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -4227,13 +4627,28 @@ class OrderHistoryScreen extends ConsumerWidget {
     
     for (final item in order.items) {
       buffer.writeln('${item.menuItem.name}');
-      buffer.writeln('  ${item.quantity} x ₹${item.menuItem.dineInPrice.toStringAsFixed(2)} = ₹${item.total.toStringAsFixed(2)}');
+      if (item.hasDiscount) {
+        buffer.writeln('  ${item.quantity} x ₹${item.unitPrice.toStringAsFixed(2)} = ₹${item.subtotal.toStringAsFixed(2)}');
+        buffer.writeln('  Discount: -₹${item.discountAmount.toStringAsFixed(2)}');
+        if (item.discount?.reason != null) {
+          buffer.writeln('  Reason: ${item.discount!.reason}');
+        }
+        buffer.writeln('  Final: ₹${item.total.toStringAsFixed(2)}');
+      } else {
+        buffer.writeln('  ${item.quantity} x ₹${item.unitPrice.toStringAsFixed(2)} = ₹${item.total.toStringAsFixed(2)}');
+      }
       buffer.writeln();
     }
     
     buffer.writeln('-' * 32);
     buffer.writeln('BILL BREAKDOWN:');
-    buffer.writeln('Subtotal: ₹${order.subtotal.toStringAsFixed(2)}');
+    buffer.writeln('Items Subtotal: ₹${order.itemsSubtotal.toStringAsFixed(2)}');
+    
+    // Show item-level discounts
+    if (order.hasItemDiscounts) {
+      buffer.writeln('Item Discounts: -₹${order.itemsDiscountAmount.toStringAsFixed(2)}');
+      buffer.writeln('After Item Discounts: ₹${order.itemsTotal.toStringAsFixed(2)}');
+    }
     
     // Add delivery charge if applicable
     if (order.type == OrderType.delivery && order.charges.deliveryCharge > 0) {
@@ -4250,8 +4665,28 @@ class OrderHistoryScreen extends ConsumerWidget {
       buffer.writeln('Service Charge: ₹${order.charges.serviceCharge.toStringAsFixed(2)}');
     }
     
+    // Show order-level discount
+    if (order.hasOrderDiscount) {
+      buffer.writeln('');
+      final discountLabel = order.orderDiscount!.type == DiscountType.percentage 
+          ? 'Order Discount (${order.orderDiscount!.value.toStringAsFixed(0)}%)'
+          : 'Order Discount (Fixed)';
+      buffer.writeln('$discountLabel: -₹${order.orderDiscountAmount.toStringAsFixed(2)}');
+      if (order.orderDiscount?.reason != null) {
+        buffer.writeln('Reason: ${order.orderDiscount!.reason}');
+      }
+      buffer.writeln('After Order Discount: ₹${order.discountedAmount.toStringAsFixed(2)}');
+    }
+    
     buffer.writeln('GST (18%): ₹${order.taxAmount.toStringAsFixed(2)}');
     buffer.writeln('=' * 32);
+    
+    // Show total savings if any discounts
+    if (order.hasDiscounts) {
+      buffer.writeln('TOTAL SAVINGS: ₹${order.totalDiscountAmount.toStringAsFixed(2)}');
+      buffer.writeln('-' * 32);
+    }
+    
     buffer.writeln('TOTAL: ₹${order.grandTotal.toStringAsFixed(2)}');
     buffer.writeln('=' * 32);
     buffer.writeln('       Thank you!');
@@ -4708,6 +5143,14 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     // Calculate additional metrics
     final packagingRevenue = filteredOrders.fold(0.0, (sum, order) => sum + order.charges.packagingCharge);
     final deliveryRevenue = filteredOrders.fold(0.0, (sum, order) => sum + order.charges.deliveryCharge);
+    
+    // Discount analytics
+    final ordersWithDiscounts = filteredOrders.where((order) => order.hasDiscounts).length;
+    final totalDiscountAmount = filteredOrders.fold(0.0, (sum, order) => sum + order.totalDiscountAmount);
+    final itemDiscountAmount = filteredOrders.fold(0.0, (sum, order) => sum + order.itemsDiscountAmount);
+    final orderDiscountAmount = filteredOrders.fold(0.0, (sum, order) => sum + order.orderDiscountAmount);
+    final discountRate = totalSales > 0 ? (totalDiscountAmount / (totalSales + totalDiscountAmount)) * 100 : 0.0;
+    final avgDiscountPerOrder = totalOrders > 0 ? totalDiscountAmount / totalOrders : 0.0;
 
     // Top selling items analysis
     final Map<String, Map<String, dynamic>> itemAnalysis = {};
@@ -4970,6 +5413,13 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                                           Colors.indigo,
                                           totalOrders > 0 ? '${(deliveryRevenue / totalOrders).toStringAsFixed(0)} avg per order' : 'No deliveries',
                                         ),
+                                        _buildMetricCard(
+                                          'Total Discounts',
+                                          formatIndianCurrency(settings.currency, totalDiscountAmount),
+                                          Icons.local_offer,
+                                          Colors.red,
+                                          '$ordersWithDiscounts orders (${discountRate.toStringAsFixed(1)}%)',
+                                        ),
                                       ],
                                     ),
                                   ],
@@ -4977,6 +5427,129 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                               ),
                               
                               const SizedBox(height: 20),
+                              
+                              // Discount Analytics Section
+                              if (totalDiscountAmount > 0) ...[
+                                Container(
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        Colors.red.withOpacity(0.05),
+                                        Colors.white,
+                                      ],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    ),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(color: Colors.red.withOpacity(0.2)),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Container(
+                                            padding: const EdgeInsets.all(6),
+                                            decoration: BoxDecoration(
+                                              color: Colors.red.withOpacity(0.1),
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: const Icon(
+                                              Icons.local_offer,
+                                              color: Colors.red,
+                                              size: 20,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          const Text(
+                                            'Discount Analytics',
+                                            style: TextStyle(
+                                              fontSize: 18,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.black87,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 20),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: _buildDiscountMetricCard(
+                                              'Total Discounts',
+                                              formatIndianCurrency(settings.currency, totalDiscountAmount),
+                                              '${discountRate.toStringAsFixed(1)}% of sales',
+                                              Icons.discount,
+                                              Colors.red,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: _buildDiscountMetricCard(
+                                              'Orders with Discounts',
+                                              '$ordersWithDiscounts',
+                                              '${totalOrders > 0 ? ((ordersWithDiscounts / totalOrders) * 100).toStringAsFixed(1) : 0}% of orders',
+                                              Icons.receipt,
+                                              Colors.orange,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: _buildDiscountMetricCard(
+                                              'Item Discounts',
+                                              formatIndianCurrency(settings.currency, itemDiscountAmount),
+                                              '${totalDiscountAmount > 0 ? ((itemDiscountAmount / totalDiscountAmount) * 100).toStringAsFixed(1) : 0}% of total',
+                                              Icons.inventory,
+                                              Colors.purple,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: _buildDiscountMetricCard(
+                                              'Order Discounts',
+                                              formatIndianCurrency(settings.currency, orderDiscountAmount),
+                                              '${totalDiscountAmount > 0 ? ((orderDiscountAmount / totalDiscountAmount) * 100).toStringAsFixed(1) : 0}% of total',
+                                              Icons.shopping_cart,
+                                              Colors.teal,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 16),
+                                      Container(
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey[50],
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(color: Colors.grey[200]!),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            const Icon(Icons.info_outline, color: Colors.blue, size: 16),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: Text(
+                                                'Average discount per order: ${formatIndianCurrency(settings.currency, avgDiscountPerOrder)}',
+                                                style: const TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.black87,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 20),
+                              ],
                               
                               // Top Items Section Removed - Only Revenue by Order Type Shown
                               /*
@@ -5650,6 +6223,69 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     );
   }
 
+  Widget _buildDiscountMetricCard(String title, String value, String subtitle, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        gradient: LinearGradient(
+          colors: [
+            color.withOpacity(0.1),
+            color.withOpacity(0.05),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Icon(icon, size: 16, color: color),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.grey[600],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildTopItemRow(int rank, String name, int quantity, double revenue, AppSettings settings) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -5957,7 +6593,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     buffer.writeln('');
     
     // Detailed CSV Header
-    buffer.writeln('Date,Time,Order ID,Customer Name,Phone,Order Type,Status,Items Count,Subtotal,Tax,Grand Total,Payment Method,Items Detail');
+    buffer.writeln('Date,Time,Order ID,Customer Name,Phone,Order Type,Status,Items Count,Items Subtotal,Item Discounts,Order Discount,Total Discounts,Subtotal After Discounts,Tax,Grand Total,Payment Method,Items Detail');
     
     // Detailed CSV Data
     for (final order in orders) {
@@ -5969,17 +6605,26 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       final orderType = _getOrderTypeLabel(order.type);
       final status = _getStatusLabel(order.status);
       final itemsCount = order.items.length;
-      final subtotal = order.subtotal.toStringAsFixed(2);
+      final itemsSubtotal = order.itemsSubtotal.toStringAsFixed(2);
+      final itemDiscounts = order.itemsDiscountAmount.toStringAsFixed(2);
+      final orderDiscount = order.orderDiscountAmount.toStringAsFixed(2);
+      final totalDiscounts = order.totalDiscountAmount.toStringAsFixed(2);
+      final subtotalAfterDiscounts = order.subtotal.toStringAsFixed(2);
       final tax = order.taxAmount.toStringAsFixed(2);
       final total = order.grandTotal.toStringAsFixed(2);
       final paymentMethod = order.payments.isNotEmpty ? 'Paid' : 'Pending';
       
-      // Items detail
-      final itemsDetail = order.items.map((item) => 
-        '${item.menuItem.name} (Qty: ${item.quantity}, Price: ${item.unitPrice.toStringAsFixed(2)})'
-      ).join('; ');
+      // Items detail with discount information
+      final itemsDetail = order.items.map((item) {
+        String itemDetail = '${item.menuItem.name} (Qty: ${item.quantity}, Price: ${item.unitPrice.toStringAsFixed(2)}';
+        if (item.hasDiscount) {
+          itemDetail += ', Discount: -${item.discountAmount.toStringAsFixed(2)}';
+        }
+        itemDetail += ')';
+        return itemDetail;
+      }).join('; ');
       
-      buffer.writeln('"$date","$time","$orderId","$customerName","$phone","$orderType","$status",$itemsCount,$subtotal,$tax,$total,"$paymentMethod","$itemsDetail"');
+      buffer.writeln('"$date","$time","$orderId","$customerName","$phone","$orderType","$status",$itemsCount,$itemsSubtotal,$itemDiscounts,$orderDiscount,$totalDiscounts,$subtotalAfterDiscounts,$tax,$total,"$paymentMethod","$itemsDetail"');
     }
     
     _showExportDialog(context, 'Complete Order Report', buffer.toString());
@@ -5990,6 +6635,13 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final totalSales = orders.fold(0.0, (sum, order) => sum + order.grandTotal);
     final totalOrders = orders.length;
     final avgOrderValue = totalOrders > 0 ? totalSales / totalOrders : 0.0;
+    
+    // Discount analytics
+    final ordersWithDiscounts = orders.where((order) => order.hasDiscounts).length;
+    final totalDiscountAmount = orders.fold(0.0, (sum, order) => sum + order.totalDiscountAmount);
+    final itemDiscountAmount = orders.fold(0.0, (sum, order) => sum + order.itemsDiscountAmount);
+    final orderDiscountAmount = orders.fold(0.0, (sum, order) => sum + order.orderDiscountAmount);
+    final discountRate = totalSales > 0 ? (totalDiscountAmount / (totalSales + totalDiscountAmount)) * 100 : 0.0;
     
     // Group by order type
     final dineInOrders = orders.where((o) => o.type == OrderType.dineIn).length;
@@ -6005,6 +6657,14 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     buffer.writeln('Total Sales,${totalSales.toStringAsFixed(2)}');
     buffer.writeln('Total Orders,$totalOrders');
     buffer.writeln('Average Order Value,${avgOrderValue.toStringAsFixed(2)}');
+    buffer.writeln('');
+    buffer.writeln('DISCOUNT ANALYTICS');
+    buffer.writeln('Orders with Discounts,$ordersWithDiscounts');
+    buffer.writeln('Total Discount Amount,${totalDiscountAmount.toStringAsFixed(2)}');
+    buffer.writeln('Item Level Discounts,${itemDiscountAmount.toStringAsFixed(2)}');
+    buffer.writeln('Order Level Discounts,${orderDiscountAmount.toStringAsFixed(2)}');
+    buffer.writeln('Discount Rate (%),"${discountRate.toStringAsFixed(2)}%"');
+    buffer.writeln('Average Discount per Order,${totalOrders > 0 ? (totalDiscountAmount / totalOrders).toStringAsFixed(2) : '0'}');
     buffer.writeln('');
     buffer.writeln('ORDER TYPE BREAKDOWN');
     buffer.writeln('Dine In,$dineInOrders');
@@ -6044,11 +6704,19 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           itemData[itemName] = {
             'quantity': 0,
             'revenue': 0.0,
+            'totalDiscounts': 0.0,
+            'discountedRevenue': 0.0,
+            'ordersWithDiscount': 0,
             'orders': <String>{},
           };
         }
         itemData[itemName]!['quantity'] += item.quantity;
-        itemData[itemName]!['revenue'] += item.unitPrice * item.quantity;
+        itemData[itemName]!['revenue'] += item.subtotal; // Original revenue before discount
+        itemData[itemName]!['totalDiscounts'] += item.discountAmount;
+        itemData[itemName]!['discountedRevenue'] += item.total; // Actual revenue after discount
+        if (item.hasDiscount) {
+          itemData[itemName]!['ordersWithDiscount']++;
+        }
         itemData[itemName]!['orders'].add(order.id);
       }
     }
@@ -6062,16 +6730,20 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     buffer.writeln('Period: ${_formatDate(_startDate)} to ${_formatDate(_endDate)}');
     buffer.writeln('Generated: ${_formatDate(DateTime.now())}');
     buffer.writeln('');
-    buffer.writeln('Item Name,Quantity Sold,Revenue,Orders Count,Avg Price');
+    buffer.writeln('Item Name,Quantity Sold,Original Revenue,Total Discounts,Final Revenue,Orders Count,Orders with Discount,Avg Original Price,Avg Final Price');
     
     for (final item in sortedItems) {
       final name = item.key;
       final quantity = item.value['quantity'];
-      final revenue = item.value['revenue'].toStringAsFixed(2);
+      final originalRevenue = item.value['revenue'].toStringAsFixed(2);
+      final totalDiscounts = item.value['totalDiscounts'].toStringAsFixed(2);
+      final finalRevenue = item.value['discountedRevenue'].toStringAsFixed(2);
       final ordersCount = (item.value['orders'] as Set).length;
-      final avgPrice = (item.value['revenue'] / quantity).toStringAsFixed(2);
+      final ordersWithDiscount = item.value['ordersWithDiscount'];
+      final avgOriginalPrice = (item.value['revenue'] / quantity).toStringAsFixed(2);
+      final avgFinalPrice = (item.value['discountedRevenue'] / quantity).toStringAsFixed(2);
       
-      buffer.writeln('"$name",$quantity,$revenue,$ordersCount,$avgPrice');
+      buffer.writeln('"$name",$quantity,$originalRevenue,$totalDiscounts,$finalRevenue,$ordersCount,$ordersWithDiscount,$avgOriginalPrice,$avgFinalPrice');
     }
     
     _showExportDialog(context, 'Item-wise Sales Report', buffer.toString());

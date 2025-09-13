@@ -313,6 +313,17 @@ class KOTScreen extends ConsumerWidget {
     for (final item in order.items) {
       buffer.writeln('${item.quantity}x ${item.menuItem.name}');
       buffer.writeln('   Category: ${item.menuItem.category}');
+      
+      // Show discount information if applicable
+      if (item.hasDiscount) {
+        final discountType = item.discount!.type == DiscountType.percentage 
+            ? '${item.discount!.value.toStringAsFixed(0)}%' 
+            : '₹${item.discount!.value.toStringAsFixed(2)}';
+        buffer.writeln('   DISCOUNT: $discountType (-₹${item.discountAmount.toStringAsFixed(2)})');
+        if (item.discount?.reason != null) {
+          buffer.writeln('   Reason: ${item.discount!.reason}');
+        }
+      }
       buffer.writeln('');
     }
     
@@ -322,8 +333,27 @@ class KOTScreen extends ConsumerWidget {
       buffer.writeln('');
     }
     
+    // Show order-level discount information
+    if (order.hasOrderDiscount) {
+      buffer.writeln('ORDER DISCOUNT:');
+      final discountType = order.orderDiscount!.type == DiscountType.percentage 
+          ? '${order.orderDiscount!.value.toStringAsFixed(0)}%' 
+          : '₹${order.orderDiscount!.value.toStringAsFixed(2)}';
+      buffer.writeln('Type: $discountType');
+      buffer.writeln('Amount: -₹${order.orderDiscountAmount.toStringAsFixed(2)}');
+      if (order.orderDiscount?.reason != null) {
+        buffer.writeln('Reason: ${order.orderDiscount!.reason}');
+      }
+      buffer.writeln('');
+    }
+    
     buffer.writeln('--------------------------------');
     buffer.writeln('Total Items: ${order.items.fold(0, (sum, item) => sum + item.quantity)}');
+    
+    // Show total savings if applicable
+    if (order.hasDiscounts) {
+      buffer.writeln('Total Savings: ₹${order.totalDiscountAmount.toStringAsFixed(2)}');
+    }
     buffer.writeln('================================');
     
     return buffer.toString();
@@ -440,12 +470,26 @@ class KOTScreen extends ConsumerWidget {
     final completedOrders = orders.where((o) => o.status == OrderStatus.completed).length;
     final totalItems = orders.fold(0, (sum, order) => sum + order.items.fold(0, (itemSum, item) => itemSum + item.quantity));
     
+    // Discount analytics
+    final ordersWithDiscounts = orders.where((o) => o.hasDiscounts).length;
+    final totalDiscountAmount = orders.fold(0.0, (sum, order) => sum + order.totalDiscountAmount);
+    final totalRevenue = orders.fold(0.0, (sum, order) => sum + order.grandTotal);
+    
     buffer.writeln('KITCHEN METRICS:');
     buffer.writeln('Total Orders: $totalOrders');
     buffer.writeln('Pending: $pendingOrders');
     buffer.writeln('Ready: $readyOrders'); 
     buffer.writeln('Completed: $completedOrders');
     buffer.writeln('Total Items: $totalItems');
+    buffer.writeln('--------------------------------');
+    buffer.writeln('DISCOUNT SUMMARY:');
+    buffer.writeln('Orders with Discounts: $ordersWithDiscounts');
+    buffer.writeln('Total Discount Amount: ₹${totalDiscountAmount.toStringAsFixed(2)}');
+    buffer.writeln('Total Revenue: ₹${totalRevenue.toStringAsFixed(2)}');
+    if (totalDiscountAmount > 0) {
+      final discountPercentage = (totalDiscountAmount / (totalRevenue + totalDiscountAmount)) * 100;
+      buffer.writeln('Discount Rate: ${discountPercentage.toStringAsFixed(1)}%');
+    }
     buffer.writeln('--------------------------------');
     
     if (orders.isNotEmpty) {
@@ -456,6 +500,10 @@ class KOTScreen extends ConsumerWidget {
         buffer.writeln('$statusIcon Order #${order.id.substring(order.id.length - 6)} - ${order.type.name.toUpperCase()}');
         buffer.writeln('   Time: ${order.createdAt.hour}:${order.createdAt.minute.toString().padLeft(2, '0')}');
         buffer.writeln('   Items: ${order.items.fold(0, (sum, item) => sum + item.quantity)}');
+        buffer.writeln('   Total: ₹${order.grandTotal.toStringAsFixed(2)}');
+        if (order.hasDiscounts) {
+          buffer.writeln('   💸 Discount: ₹${order.totalDiscountAmount.toStringAsFixed(2)}');
+        }
         buffer.writeln('');
       }
     }
