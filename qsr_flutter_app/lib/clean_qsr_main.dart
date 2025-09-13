@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'kot_screen.dart';
+import 'dart:html' as html;
 
 // Multi-language Support
 class AppLocalizations {
@@ -1492,6 +1493,86 @@ class AppSettings {
   }
 }
 
+// Customer Analytics Data Models
+class CustomerData {
+  final String? name;
+  final String? phone;
+  final String? email;
+  final String? address;
+  final DateTime firstOrderDate;
+  final DateTime lastOrderDate;
+  final int totalOrders;
+  final double totalSpent;
+  final OrderType mostUsedOrderType;
+  final List<String> orderIds; // Track order history
+  
+  CustomerData({
+    this.name,
+    this.phone,
+    this.email,
+    this.address,
+    required this.firstOrderDate,
+    required this.lastOrderDate,
+    required this.totalOrders,
+    required this.totalSpent,
+    required this.mostUsedOrderType,
+    required this.orderIds,
+  });
+  
+  // Create from first order
+  factory CustomerData.fromOrder(Order order) {
+    return CustomerData(
+      name: order.customer?.name,
+      phone: order.customer?.phone,
+      email: order.customer?.email,
+      address: order.customer?.address,
+      firstOrderDate: order.createdAt,
+      lastOrderDate: order.createdAt,
+      totalOrders: 1,
+      totalSpent: order.grandTotal,
+      mostUsedOrderType: order.type,
+      orderIds: [order.id],
+    );
+  }
+  
+  // Update with new order
+  CustomerData updateWithOrder(Order order) {
+    final updatedOrderIds = [...orderIds, order.id];
+    
+    // Calculate most used order type
+    final orderTypeCounts = <OrderType, int>{};
+    // Count existing orders (simplified - we'll use the current most used + this new one)
+    orderTypeCounts[mostUsedOrderType] = totalOrders;
+    orderTypeCounts[order.type] = (orderTypeCounts[order.type] ?? 0) + 1;
+    
+    final newMostUsed = orderTypeCounts.entries
+        .reduce((a, b) => a.value > b.value ? a : b)
+        .key;
+    
+    return CustomerData(
+      name: order.customer?.name ?? name,
+      phone: order.customer?.phone ?? phone,
+      email: order.customer?.email ?? email,
+      address: order.customer?.address ?? address,
+      firstOrderDate: firstOrderDate,
+      lastOrderDate: order.createdAt,
+      totalOrders: totalOrders + 1,
+      totalSpent: totalSpent + order.grandTotal,
+      mostUsedOrderType: newMostUsed,
+      orderIds: updatedOrderIds,
+    );
+  }
+  
+  // Get customer identifier (phone or name)
+  String get identifier => phone ?? name ?? 'Guest';
+  
+  // Get average order value
+  double get averageOrderValue => totalOrders > 0 ? totalSpent / totalOrders : 0.0;
+  
+  // Check if customer has contact info
+  bool get hasContactInfo => (name?.isNotEmpty == true) || (phone?.isNotEmpty == true);
+}
+
 // State Providers
 final menuProvider = StateNotifierProvider<MenuNotifier, List<MenuItem>>((ref) {
   return MenuNotifier();
@@ -1507,6 +1588,10 @@ final ordersProvider = StateNotifierProvider<OrdersNotifier, List<Order>>((ref) 
 
 final settingsProvider = StateNotifierProvider<SettingsNotifier, AppSettings>((ref) {
   return SettingsNotifier();
+});
+
+final customerDataProvider = StateNotifierProvider<CustomerDataNotifier, Map<String, CustomerData>>((ref) {
+  return CustomerDataNotifier();
 });
 
 final orderTypeProvider = StateProvider<OrderType>((ref) => OrderType.dineIn);
@@ -1739,6 +1824,58 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
   }
 }
 
+class CustomerDataNotifier extends StateNotifier<Map<String, CustomerData>> {
+  CustomerDataNotifier() : super({});
+
+  void addOrUpdateCustomerFromOrder(Order order) {
+    // Skip if no customer info
+    if (order.customer == null) return;
+    
+    // Use phone as primary key, fallback to name
+    final customerKey = order.customer!.phone ?? order.customer!.name ?? 'guest_${order.id}';
+    
+    if (customerKey.isEmpty || customerKey.startsWith('guest_')) return;
+    
+    final currentData = state[customerKey];
+    
+    if (currentData == null) {
+      // New customer
+      state = {
+        ...state,
+        customerKey: CustomerData.fromOrder(order),
+      };
+    } else {
+      // Update existing customer
+      state = {
+        ...state,
+        customerKey: currentData.updateWithOrder(order),
+      };
+    }
+  }
+
+  List<CustomerData> get sortedCustomers {
+    final customers = state.values.toList();
+    customers.sort((a, b) => b.lastOrderDate.compareTo(a.lastOrderDate));
+    return customers;
+  }
+
+  List<CustomerData> get topCustomers {
+    final customers = state.values.toList();
+    customers.sort((a, b) => b.totalSpent.compareTo(a.totalSpent));
+    return customers.take(10).toList();
+  }
+
+  CustomerData? getCustomerByPhone(String phone) {
+    return state[phone];
+  }
+
+  int get totalCustomers => state.length;
+  
+  double get totalCustomerValue => state.values.fold(0.0, (sum, customer) => sum + customer.totalSpent);
+  
+  double get averageCustomerValue => totalCustomers > 0 ? totalCustomerValue / totalCustomers : 0.0;
+}
+
 // Main Navigation Screen
 class MainScreen extends ConsumerStatefulWidget {
   const MainScreen({super.key});
@@ -1805,6 +1942,8 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
   final TextEditingController _notesController = TextEditingController();
   final TextEditingController _customerNameController = TextEditingController();
   final TextEditingController _customerPhoneController = TextEditingController();
+  final TextEditingController _customerEmailController = TextEditingController();
+  final TextEditingController _customerAddressController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _discountController = TextEditingController();
   
@@ -1884,6 +2023,8 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     _notesController.dispose();
     _customerNameController.dispose();
     _customerPhoneController.dispose();
+    _customerEmailController.dispose();
+    _customerAddressController.dispose();
     _searchController.dispose();
     _discountController.dispose();
     super.dispose();
@@ -1999,7 +2140,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                       ),
                       ButtonSegment(
                         value: OrderType.delivery,
-                        label: Text('Home Delivery'),
+                        label: Text('Delivery'),
                       ),
                     ],
                     selected: {orderType},
@@ -2489,7 +2630,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
               
               const SizedBox(height: 16),
               
-              // Order Summary Section
+              // Order Items Section (Default Open)
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -2827,181 +2968,278 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
               
               const SizedBox(height: 12),
               
-              // Customer Information & Special Instructions Section (Optimized)
+              // Collapsible Customer Information & Instructions Section
               Container(
-                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: Colors.grey[50],
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: Colors.grey[200]!),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.person_outline, color: Colors.grey[700], size: 18),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            'Customer & Instructions',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600, 
-                              fontSize: MediaQuery.of(context).size.width < 400 ? 12 : 14,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                child: ExpansionTile(
+                  tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  title: Row(
+                    children: [
+                      Icon(Icons.person_outline, color: Colors.grey[700], size: 18),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Customer & Instructions',
+                          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
                         ),
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                          decoration: BoxDecoration(
-                            color: Colors.grey[300],
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Text(
-                            'Optional',
-                            style: TextStyle(fontSize: 10, color: Colors.grey),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    // Customer fields - responsive layout
-                    MediaQuery.of(context).size.width < 400 
-                      ? Column(
-                          children: [
-                            TextField(
-                              controller: _customerNameController,
-                              decoration: InputDecoration(
-                                labelText: 'Customer Name',
-                                prefixIcon: const Icon(Icons.person, size: 18),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                  borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
-                                ),
-                                filled: true,
-                                fillColor: Colors.white,
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                labelStyle: const TextStyle(fontSize: 12),
-                              ),
-                              style: const TextStyle(fontSize: 14),
-                            ),
-                            const SizedBox(height: 8),
-                            TextField(
-                              controller: _customerPhoneController,
-                              decoration: InputDecoration(
-                                labelText: 'Phone Number (10 digits)',
-                                prefixIcon: const Icon(Icons.phone, size: 18),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                  borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
-                                ),
-                                errorBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                  borderSide: const BorderSide(color: Colors.red, width: 1),
-                                ),
-                                filled: true,
-                                fillColor: Colors.white,
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                labelStyle: const TextStyle(fontSize: 12),
-                                errorText: _customerPhoneController.text.isNotEmpty 
-                                    ? _validatePhoneNumber(_customerPhoneController.text) 
-                                    : null,
-                              ),
-                              style: const TextStyle(fontSize: 14),
-                              keyboardType: TextInputType.number,
-                              inputFormatters: [
-                                FilteringTextInputFormatter.digitsOnly,
-                                LengthLimitingTextInputFormatter(10),
-                              ],
-                              onChanged: (value) {
-                                setState(() {}); // Trigger rebuild for validation
-                              },
-                            ),
-                          ],
-                        )
-                      : Row(
-                          children: [
-                            Expanded(
-                              child: TextField(
-                                controller: _customerNameController,
-                                decoration: InputDecoration(
-                                  labelText: 'Customer Name',
-                                  prefixIcon: const Icon(Icons.person, size: 18),
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
-                                  ),
-                                  filled: true,
-                                  fillColor: Colors.white,
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                  labelStyle: const TextStyle(fontSize: 12),
-                                ),
-                                style: const TextStyle(fontSize: 14),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: TextField(
-                                controller: _customerPhoneController,
-                                decoration: InputDecoration(
-                                  labelText: 'Phone Number (10 digits)',
-                                  prefixIcon: const Icon(Icons.phone, size: 18),
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
-                                  ),
-                                  errorBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: const BorderSide(color: Colors.red, width: 1),
-                                  ),
-                                  filled: true,
-                                  fillColor: Colors.white,
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                  labelStyle: const TextStyle(fontSize: 12),
-                                  errorText: _customerPhoneController.text.isNotEmpty 
-                                      ? _validatePhoneNumber(_customerPhoneController.text) 
-                                      : null,
-                                ),
-                                style: const TextStyle(fontSize: 14),
-                                keyboardType: TextInputType.number,
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.digitsOnly,
-                                  LengthLimitingTextInputFormatter(10),
-                                ],
-                                onChanged: (value) {
-                                  setState(() {}); // Trigger rebuild for validation
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                    const SizedBox(height: 8),
-                    // Special instructions field - compact
-                    TextField(
-                      controller: _notesController,
-                      decoration: InputDecoration(
-                        hintText: 'Special instructions (optional)',
-                        prefixIcon: const Icon(Icons.note_outlined, size: 16),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
-                        ),
-                        filled: true,
-                        fillColor: Colors.white,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        hintStyle: const TextStyle(fontSize: 11),
-                        isDense: true,
                       ),
-                      style: const TextStyle(fontSize: 12),
-                      maxLines: 1,
-                      minLines: 1,
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[300],
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Text(
+                          'Optional',
+                          style: TextStyle(fontSize: 10, color: Colors.grey),
+                        ),
+                      ),
+                    ],
+                  ),
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey[200]!),
+                      ),
+                      child: Column(
+                        children: [
+                          // Customer Name and Phone - responsive layout
+                          MediaQuery.of(context).size.width < 400 
+                            ? Column(
+                                children: [
+                                  TextField(
+                                    controller: _customerNameController,
+                                    decoration: InputDecoration(
+                                      labelText: 'Customer Name',
+                                      prefixIcon: const Icon(Icons.person, size: 18),
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
+                                      ),
+                                      filled: true,
+                                      fillColor: Colors.white,
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      labelStyle: const TextStyle(fontSize: 12),
+                                    ),
+                                    style: const TextStyle(fontSize: 14),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  TextField(
+                                    controller: _customerPhoneController,
+                                    decoration: InputDecoration(
+                                      labelText: 'Phone Number (10 digits)',
+                                      prefixIcon: const Icon(Icons.phone, size: 18),
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
+                                      ),
+                                      errorBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: const BorderSide(color: Colors.red, width: 1),
+                                      ),
+                                      filled: true,
+                                      fillColor: Colors.white,
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      labelStyle: const TextStyle(fontSize: 12),
+                                      errorText: _customerPhoneController.text.isNotEmpty 
+                                          ? _validatePhoneNumber(_customerPhoneController.text) 
+                                          : null,
+                                    ),
+                                    style: const TextStyle(fontSize: 14),
+                                    keyboardType: TextInputType.number,
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.digitsOnly,
+                                      LengthLimitingTextInputFormatter(10),
+                                    ],
+                                    onChanged: (value) {
+                                      setState(() {}); // Trigger rebuild for validation
+                                    },
+                                  ),
+                                ],
+                              )
+                            : Row(
+                                children: [
+                                  Expanded(
+                                    child: TextField(
+                                      controller: _customerNameController,
+                                      decoration: InputDecoration(
+                                        labelText: 'Customer Name',
+                                        prefixIcon: const Icon(Icons.person, size: 18),
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                        focusedBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(8),
+                                          borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
+                                        ),
+                                        filled: true,
+                                        fillColor: Colors.white,
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                        labelStyle: const TextStyle(fontSize: 12),
+                                      ),
+                                      style: const TextStyle(fontSize: 14),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: TextField(
+                                      controller: _customerPhoneController,
+                                      decoration: InputDecoration(
+                                        labelText: 'Phone Number (10 digits)',
+                                        prefixIcon: const Icon(Icons.phone, size: 18),
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                        focusedBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(8),
+                                          borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
+                                        ),
+                                        errorBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(8),
+                                          borderSide: const BorderSide(color: Colors.red, width: 1),
+                                        ),
+                                        filled: true,
+                                        fillColor: Colors.white,
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                        labelStyle: const TextStyle(fontSize: 12),
+                                        errorText: _customerPhoneController.text.isNotEmpty 
+                                            ? _validatePhoneNumber(_customerPhoneController.text) 
+                                            : null,
+                                      ),
+                                      style: const TextStyle(fontSize: 14),
+                                      keyboardType: TextInputType.number,
+                                      inputFormatters: [
+                                        FilteringTextInputFormatter.digitsOnly,
+                                        LengthLimitingTextInputFormatter(10),
+                                      ],
+                                      onChanged: (value) {
+                                        setState(() {}); // Trigger rebuild for validation
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ),
+                          
+                          const SizedBox(height: 12),
+                          
+                          // Email and Address fields
+                          MediaQuery.of(context).size.width < 400 
+                            ? Column(
+                                children: [
+                                  TextField(
+                                    controller: _customerEmailController,
+                                    decoration: InputDecoration(
+                                      labelText: 'Email Address',
+                                      prefixIcon: const Icon(Icons.email, size: 18),
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
+                                      ),
+                                      filled: true,
+                                      fillColor: Colors.white,
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      labelStyle: const TextStyle(fontSize: 12),
+                                    ),
+                                    style: const TextStyle(fontSize: 14),
+                                    keyboardType: TextInputType.emailAddress,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  TextField(
+                                    controller: _customerAddressController,
+                                    decoration: InputDecoration(
+                                      labelText: 'Address',
+                                      prefixIcon: const Icon(Icons.location_on, size: 18),
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
+                                      ),
+                                      filled: true,
+                                      fillColor: Colors.white,
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      labelStyle: const TextStyle(fontSize: 12),
+                                    ),
+                                    style: const TextStyle(fontSize: 14),
+                                    maxLines: 2,
+                                  ),
+                                ],
+                              )
+                            : Row(
+                                children: [
+                                  Expanded(
+                                    child: TextField(
+                                      controller: _customerEmailController,
+                                      decoration: InputDecoration(
+                                        labelText: 'Email Address',
+                                        prefixIcon: const Icon(Icons.email, size: 18),
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                        focusedBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(8),
+                                          borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
+                                        ),
+                                        filled: true,
+                                        fillColor: Colors.white,
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                        labelStyle: const TextStyle(fontSize: 12),
+                                      ),
+                                      style: const TextStyle(fontSize: 14),
+                                      keyboardType: TextInputType.emailAddress,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: TextField(
+                                      controller: _customerAddressController,
+                                      decoration: InputDecoration(
+                                        labelText: 'Address',
+                                        prefixIcon: const Icon(Icons.location_on, size: 18),
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                        focusedBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(8),
+                                          borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
+                                        ),
+                                        filled: true,
+                                        fillColor: Colors.white,
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                        labelStyle: const TextStyle(fontSize: 12),
+                                      ),
+                                      style: const TextStyle(fontSize: 14),
+                                      maxLines: 2,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                          
+                          const SizedBox(height: 12),
+                          
+                          // Special instructions field
+                          TextField(
+                            controller: _notesController,
+                            decoration: InputDecoration(
+                              hintText: 'Special instructions or notes for this order',
+                              prefixIcon: const Icon(Icons.note_outlined, size: 18),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
+                              ),
+                              filled: true,
+                              fillColor: Colors.white,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                            ),
+                            style: const TextStyle(fontSize: 14),
+                            maxLines: 2,
+                            minLines: 1,
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -3236,10 +3474,15 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
 
     // Create customer info if provided
     CustomerInfo? customerInfo;
-    if (_customerNameController.text.isNotEmpty || _customerPhoneController.text.isNotEmpty) {
+    if (_customerNameController.text.isNotEmpty || 
+        _customerPhoneController.text.isNotEmpty ||
+        _customerEmailController.text.isNotEmpty ||
+        _customerAddressController.text.isNotEmpty) {
       customerInfo = CustomerInfo(
         name: _customerNameController.text.isEmpty ? null : _customerNameController.text,
         phone: _customerPhoneController.text.isEmpty ? null : _customerPhoneController.text,
+        email: _customerEmailController.text.isEmpty ? null : _customerEmailController.text,
+        address: _customerAddressController.text.isEmpty ? null : _customerAddressController.text,
       );
     }
 
@@ -3272,11 +3515,18 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     // Add order to the orders provider
     ref.read(ordersProvider.notifier).addOrder(newOrder);
     
+    // Update customer analytics data if customer info is provided
+    if (customerInfo != null) {
+      ref.read(customerDataProvider.notifier).addOrUpdateCustomerFromOrder(newOrder);
+    }
+    
     // Clear current order and form
     ref.read(currentOrderProvider.notifier).clearOrder();
     ref.read(currentOrderDiscountProvider.notifier).state = null; // Clear order discount
     _customerNameController.clear();
     _customerPhoneController.clear();
+    _customerEmailController.clear();
+    _customerAddressController.clear();
     _notesController.clear();
     
     // Reset charges and discount
@@ -7006,54 +7256,7 @@ class SettingsScreen extends ConsumerWidget {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // Business Information Card
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(l10n(ref, 'business_information'), style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 16),
-                    ListTile(
-                      leading: const Icon(Icons.business),
-                      title: Text(l10n(ref, 'business_name')),
-                      subtitle: Text(settings.businessName),
-                      trailing: const Icon(Icons.edit),
-                      onTap: () => _showEditDialog(context, ref, l10n(ref, 'business_name'), settings.businessName, 
-                          (value) => ref.read(settingsProvider.notifier).updateBusinessName(value)),
-                    ),
-                    ListTile(
-                      leading: const Icon(Icons.location_on),
-                      title: Text(l10n(ref, 'address')),
-                      subtitle: Text(settings.address.isEmpty ? l10n(ref, 'not_set') : settings.address),
-                      trailing: const Icon(Icons.edit),
-                      onTap: () => _showEditDialog(context, ref, l10n(ref, 'address'), settings.address, 
-                          (value) => ref.read(settingsProvider.notifier).updateAddress(value)),
-                    ),
-                    ListTile(
-                      leading: const Icon(Icons.phone),
-                      title: Text(l10n(ref, 'phone')),
-                      subtitle: Text(settings.phone.isEmpty ? l10n(ref, 'not_set') : settings.phone),
-                      trailing: const Icon(Icons.edit),
-                      onTap: () => _showEditDialog(context, ref, l10n(ref, 'phone'), settings.phone, 
-                          (value) => ref.read(settingsProvider.notifier).updatePhone(value)),
-                    ),
-                    ListTile(
-                      leading: const Icon(Icons.email),
-                      title: Text(l10n(ref, 'email')),
-                      subtitle: Text(settings.email.isEmpty ? l10n(ref, 'not_set') : settings.email),
-                      trailing: const Icon(Icons.edit),
-                      onTap: () => _showEditDialog(context, ref, l10n(ref, 'email'), settings.email, 
-                          (value) => ref.read(settingsProvider.notifier).updateEmail(value)),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Menu Management Card
+            // Menu Management Card (Default Open)
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -7095,175 +7298,241 @@ class SettingsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 16),
 
-            // Financial Settings Card
+            // Business Information Card (Collapsible)
             Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(l10n(ref, 'financial_settings'), style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 16),
-                    ListTile(
-                      leading: const Icon(Icons.currency_rupee),
-                      title: Text(l10n(ref, 'currency')),
-                      subtitle: Text(settings.currency),
-                      trailing: const Icon(Icons.edit),
-                      onTap: () => _showCurrencySelector(context, ref),
-                    ),
-                    ListTile(
-                      leading: const Icon(Icons.percent),
-                      title: Text(l10n(ref, 'tax_rate')),
-                      subtitle: Text('${(settings.taxRate * 100).toInt()}% GST'),
-                      trailing: const Icon(Icons.edit),
-                      onTap: () => _showTaxRateDialog(context, ref, settings.taxRate),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Feature Settings Card
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(l10n(ref, 'feature_settings'), style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 16),
-                    SwitchListTile(
-                      secondary: const Icon(Icons.print),
-                      title: Text(l10n(ref, 'kot_printing')),
-                      subtitle: Text(l10n(ref, 'kot_printing_desc')),
-                      value: settings.kotEnabled,
-                      activeColor: const Color(0xFFFF9933),
-                      onChanged: (bool value) {
-                        ref.read(settingsProvider.notifier).updateSettings(
-                          settings.copyWith(kotEnabled: value),
-                        );
-                      },
-                    ),
-                    ListTile(
-                      leading: const Icon(Icons.translate),
-                      title: Text(l10n(ref, 'default_language')),
-                      subtitle: Text(settings.defaultLanguage == 'en' ? l10n(ref, 'english') : l10n(ref, 'hindi')),
-                      trailing: const Icon(Icons.edit),
-                      onTap: () => _showLanguageSelector(context, ref, settings.defaultLanguage),
-                    ),
-                    SwitchListTile(
-                      secondary: const Icon(Icons.delivery_dining),
-                      title: Text(l10n(ref, 'delivery_service')),
-                      subtitle: Text(l10n(ref, 'delivery_service_desc')),
-                      value: settings.deliveryEnabled,
-                      activeColor: const Color(0xFFFF9933),
-                      onChanged: (bool value) {
-                        ref.read(settingsProvider.notifier).updateSettings(
-                          settings.copyWith(deliveryEnabled: value),
-                        );
-                      },
-                    ),
-                    if (settings.deliveryEnabled) ...[
-                      ListTile(
-                        leading: const Icon(Icons.local_shipping),
-                        title: const Text('Delivery Charge'),
-                        subtitle: Text('${settings.currency}${settings.defaultDeliveryCharge.toStringAsFixed(2)}'),
-                        trailing: const Icon(Icons.edit),
-                        onTap: () => _showChargeDialog(context, ref, 'Delivery Charge', settings.defaultDeliveryCharge, 
-                          (value) => ref.read(settingsProvider.notifier).updateSettings(
-                            settings.copyWith(defaultDeliveryCharge: value),
-                          ),
-                        ),
-                      ),
-                      ListTile(
-                        leading: const Icon(Icons.inventory),
-                        title: const Text('Packaging Charge'),
-                        subtitle: Text('${settings.currency}${settings.defaultPackagingCharge.toStringAsFixed(2)}'),
-                        trailing: const Icon(Icons.edit),
-                        onTap: () => _showChargeDialog(context, ref, 'Packaging Charge', settings.defaultPackagingCharge, 
-                          (value) => ref.read(settingsProvider.notifier).updateSettings(
-                            settings.copyWith(defaultPackagingCharge: value),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Reports & Analytics Card
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+              child: ExpansionTile(
+                leading: const Icon(Icons.business, color: Color(0xFFFF9933)),
+                title: Text(l10n(ref, 'business_information'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
                       children: [
-                        const Icon(Icons.analytics, color: Color(0xFFFF9933)),
-                        const SizedBox(width: 8),
-                        const Text('Reports & Analytics', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        ListTile(
+                          leading: const Icon(Icons.business),
+                          title: Text(l10n(ref, 'business_name')),
+                          subtitle: Text(settings.businessName),
+                          trailing: const Icon(Icons.edit),
+                          onTap: () => _showEditDialog(context, ref, l10n(ref, 'business_name'), settings.businessName, 
+                              (value) => ref.read(settingsProvider.notifier).updateBusinessName(value)),
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.location_on),
+                          title: Text(l10n(ref, 'address')),
+                          subtitle: Text(settings.address.isEmpty ? l10n(ref, 'not_set') : settings.address),
+                          trailing: const Icon(Icons.edit),
+                          onTap: () => _showEditDialog(context, ref, l10n(ref, 'address'), settings.address, 
+                              (value) => ref.read(settingsProvider.notifier).updateAddress(value)),
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.phone),
+                          title: Text(l10n(ref, 'phone')),
+                          subtitle: Text(settings.phone.isEmpty ? l10n(ref, 'not_set') : settings.phone),
+                          trailing: const Icon(Icons.edit),
+                          onTap: () => _showEditDialog(context, ref, l10n(ref, 'phone'), settings.phone, 
+                              (value) => ref.read(settingsProvider.notifier).updatePhone(value)),
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.email),
+                          title: Text(l10n(ref, 'email')),
+                          subtitle: Text(settings.email.isEmpty ? l10n(ref, 'not_set') : settings.email),
+                          trailing: const Icon(Icons.edit),
+                          onTap: () => _showEditDialog(context, ref, l10n(ref, 'email'), settings.email, 
+                              (value) => ref.read(settingsProvider.notifier).updateEmail(value)),
+                        ),
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    ListTile(
-                      leading: const Icon(Icons.bar_chart, color: Color(0xFFFF9933)),
-                      title: const Text('Sales Reports'),
-                      subtitle: const Text('View sales analytics and trends'),
-                      trailing: const Icon(Icons.arrow_forward_ios),
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (context) => const ReportsScreen()),
-                      ),
-                    ),
-                    ListTile(
-                      leading: const Icon(Icons.receipt_long, color: Color(0xFFFF9933)),
-                      title: const Text('KOT Summary'),
-                      subtitle: const Text('Kitchen order ticket reports'),
-                      trailing: const Icon(Icons.arrow_forward_ios),
-                      onTap: () => _showKOTReportsDialog(context, ref),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 16),
 
-            // App Information Card
+            // Feature Settings Card (Collapsible)
             Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('App Information', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 16),
-                    const ListTile(
-                      leading: Icon(Icons.info),
-                      title: Text('Version'),
-                      subtitle: Text('1.0.0'),
+              child: ExpansionTile(
+                leading: const Icon(Icons.settings, color: Color(0xFFFF9933)),
+                title: Text(l10n(ref, 'feature_settings'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        SwitchListTile(
+                          secondary: const Icon(Icons.print),
+                          title: Text(l10n(ref, 'kot_printing')),
+                          subtitle: Text(l10n(ref, 'kot_printing_desc')),
+                          value: settings.kotEnabled,
+                          activeColor: const Color(0xFFFF9933),
+                          onChanged: (bool value) {
+                            ref.read(settingsProvider.notifier).updateSettings(
+                              settings.copyWith(kotEnabled: value),
+                            );
+                          },
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.translate),
+                          title: Text(l10n(ref, 'default_language')),
+                          subtitle: Text(settings.defaultLanguage == 'en' ? l10n(ref, 'english') : l10n(ref, 'hindi')),
+                          trailing: const Icon(Icons.edit),
+                          onTap: () => _showLanguageSelector(context, ref, settings.defaultLanguage),
+                        ),
+                        SwitchListTile(
+                          secondary: const Icon(Icons.delivery_dining),
+                          title: Text(l10n(ref, 'delivery_service')),
+                          subtitle: Text(l10n(ref, 'delivery_service_desc')),
+                          value: settings.deliveryEnabled,
+                          activeColor: const Color(0xFFFF9933),
+                          onChanged: (bool value) {
+                            ref.read(settingsProvider.notifier).updateSettings(
+                              settings.copyWith(deliveryEnabled: value),
+                            );
+                          },
+                        ),
+                        if (settings.deliveryEnabled) ...[
+                          ListTile(
+                            leading: const Icon(Icons.local_shipping),
+                            title: const Text('Delivery Charge'),
+                            subtitle: Text('${settings.currency}${settings.defaultDeliveryCharge.toStringAsFixed(2)}'),
+                            trailing: const Icon(Icons.edit),
+                            onTap: () => _showChargeDialog(context, ref, 'Delivery Charge', settings.defaultDeliveryCharge, 
+                              (value) => ref.read(settingsProvider.notifier).updateSettings(
+                                settings.copyWith(defaultDeliveryCharge: value),
+                              ),
+                            ),
+                          ),
+                          ListTile(
+                            leading: const Icon(Icons.inventory),
+                            title: const Text('Packaging Charge'),
+                            subtitle: Text('${settings.currency}${settings.defaultPackagingCharge.toStringAsFixed(2)}'),
+                            trailing: const Icon(Icons.edit),
+                            onTap: () => _showChargeDialog(context, ref, 'Packaging Charge', settings.defaultPackagingCharge, 
+                              (value) => ref.read(settingsProvider.notifier).updateSettings(
+                                settings.copyWith(defaultPackagingCharge: value),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                    const ListTile(
-                      leading: Icon(Icons.developer_mode),
-                      title: Text('Developer'),
-                      subtitle: Text('QSR Solutions'),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Reports & Analytics Card (Collapsible)
+            Card(
+              child: ExpansionTile(
+                leading: const Icon(Icons.analytics, color: Color(0xFFFF9933)),
+                title: const Text('Reports & Analytics', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        ListTile(
+                          leading: const Icon(Icons.people, color: Color(0xFFFF9933)),
+                          title: const Text('Customer Analytics'),
+                          subtitle: const Text('View customer data and insights'),
+                          trailing: const Icon(Icons.arrow_forward_ios),
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => const CustomerAnalyticsScreen()),
+                          ),
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.bar_chart, color: Color(0xFFFF9933)),
+                          title: const Text('Sales Reports'),
+                          subtitle: const Text('View sales analytics and trends'),
+                          trailing: const Icon(Icons.arrow_forward_ios),
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => const ReportsScreen()),
+                          ),
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.receipt_long, color: Color(0xFFFF9933)),
+                          title: const Text('KOT Summary'),
+                          subtitle: const Text('Kitchen order ticket reports'),
+                          trailing: const Icon(Icons.arrow_forward_ios),
+                          onTap: () => _showKOTReportsDialog(context, ref),
+                        ),
+                      ],
                     ),
-                    ListTile(
-                      leading: const Icon(Icons.help),
-                      title: const Text('Support'),
-                      subtitle: const Text('Get help and support'),
-                      trailing: const Icon(Icons.arrow_forward_ios),
-                      onTap: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Contact support: support@qsrsolutions.com')),
-                        );
-                      },
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Financial Settings Card (Collapsible)
+            Card(
+              child: ExpansionTile(
+                leading: const Icon(Icons.attach_money, color: Color(0xFFFF9933)),
+                title: Text(l10n(ref, 'financial_settings'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        ListTile(
+                          leading: const Icon(Icons.currency_rupee),
+                          title: Text(l10n(ref, 'currency')),
+                          subtitle: Text(settings.currency),
+                          trailing: const Icon(Icons.edit),
+                          onTap: () => _showCurrencySelector(context, ref),
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.percent),
+                          title: Text(l10n(ref, 'tax_rate')),
+                          subtitle: Text('${(settings.taxRate * 100).toInt()}% GST'),
+                          trailing: const Icon(Icons.edit),
+                          onTap: () => _showTaxRateDialog(context, ref, settings.taxRate),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // App Information Card (Collapsible)  
+            Card(
+              child: ExpansionTile(
+                leading: const Icon(Icons.info, color: Color(0xFFFF9933)),
+                title: const Text('App Information', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        const ListTile(
+                          leading: Icon(Icons.info),
+                          title: Text('Version'),
+                          subtitle: Text('1.0.0'),
+                        ),
+                        const ListTile(
+                          leading: Icon(Icons.developer_mode),
+                          title: Text('Developer'),
+                          subtitle: Text('QSR Solutions'),
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.help),
+                          title: const Text('Support'),
+                          subtitle: const Text('Get help and support'),
+                          trailing: const Icon(Icons.arrow_forward_ios),
+                          onTap: () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Contact support: support@qsrsolutions.com')),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -7841,55 +8110,136 @@ class SettingsScreen extends ConsumerWidget {
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            const Icon(Icons.receipt_long, color: Color(0xFFFF9933)),
-            const SizedBox(width: 8),
-            const Text('KOT Summary'),
-            const Spacer(),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.blue,
-                borderRadius: BorderRadius.circular(12),
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(
+          width: MediaQuery.of(context).size.width * 0.8,
+          height: MediaQuery.of(context).size.height * 0.7,
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                children: [
+                  const Icon(Icons.receipt_long, color: Color(0xFFFF9933), size: 28),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'KOT Summary Report',
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF9933),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Text(
+                      'TODAY',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              child: const Text(
-                'TODAY',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
+              const SizedBox(height: 20),
+              
+              // Divider
+              Container(
+                height: 2,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.orange.shade300, Colors.orange.shade600],
+                  ),
+                  borderRadius: BorderRadius.circular(1),
                 ),
               ),
-            ),
-          ],
-        ),
-        content: SizedBox(
-          width: double.maxFinite,
-          height: 400,
-          child: SingleChildScrollView(
-            child: Text(
-              summaryContent,
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-            ),
+              const SizedBox(height: 20),
+              
+              // Content
+              Expanded(
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: SingleChildScrollView(
+                    child: Text(
+                      summaryContent,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 13,
+                        height: 1.4,
+                        color: Colors.black87,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              
+              // Action Buttons
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    ),
+                    child: const Text(
+                      'Close',
+                      style: TextStyle(fontSize: 16),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      print('Printing KOT Summary...\n$summaryContent');
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: const Row(
+                            children: [
+                              Icon(Icons.check_circle, color: Colors.white),
+                              SizedBox(width: 8),
+                              Text('KOT Summary sent to printer'),
+                            ],
+                          ),
+                          backgroundColor: Colors.green,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFFF9933),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    icon: const Icon(Icons.print),
+                    label: const Text(
+                      'Print Report',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              print('Printing KOT Summary...\n$summaryContent');
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('KOT Summary sent to printer')),
-              );
-            },
-            child: const Text('Print'),
-          ),
-        ],
       ),
     );
   }
@@ -7967,5 +8317,539 @@ class SettingsScreen extends ConsumerWidget {
     buffer.writeln('='.padRight(32, '='));
     
     return buffer.toString();
+  }
+}
+
+// Customer Analytics Screen
+class CustomerAnalyticsScreen extends ConsumerWidget {
+  const CustomerAnalyticsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final customerData = ref.watch(customerDataProvider);
+    final customerNotifier = ref.read(customerDataProvider.notifier);
+    final settings = ref.watch(settingsProvider);
+
+    final totalCustomers = customerNotifier.totalCustomers;
+    final totalCustomerValue = customerNotifier.totalCustomerValue;
+    final averageCustomerValue = customerNotifier.averageCustomerValue;
+    final topCustomers = customerNotifier.topCustomers;
+    final recentCustomers = customerNotifier.sortedCustomers.take(10).toList();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Customer Analytics'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            // Customer Overview Cards
+            Row(
+              children: [
+                Expanded(
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        children: [
+                          const Icon(Icons.people, size: 32, color: Color(0xFFFF9933)),
+                          const SizedBox(height: 8),
+                          Text(
+                            totalCustomers.toString(),
+                            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                          ),
+                          const Text('Total Customers'),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        children: [
+                          const Icon(Icons.currency_rupee, size: 32, color: Color(0xFFFF9933)),
+                          const SizedBox(height: 8),
+                          Text(
+                            formatIndianCurrency(settings.currency, totalCustomerValue),
+                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                          ),
+                          const Text('Total Value'),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            
+            Row(
+              children: [
+                Expanded(
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        children: [
+                          const Icon(Icons.account_balance_wallet, size: 32, color: Color(0xFFFF9933)),
+                          const SizedBox(height: 8),
+                          Text(
+                            formatIndianCurrency(settings.currency, averageCustomerValue),
+                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                          ),
+                          const Text('Avg Customer Value'),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        children: [
+                          const Icon(Icons.star, size: 32, color: Color(0xFFFF9933)),
+                          const SizedBox(height: 8),
+                          Text(
+                            topCustomers.isEmpty ? '0' : topCustomers.length.toString(),
+                            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                          ),
+                          const Text('Top Customers'),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+
+            // Top Customers Section
+            if (topCustomers.isNotEmpty) ...[
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.emoji_events, color: Color(0xFFFF9933)),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'Top Customers by Value',
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      ...topCustomers.take(5).map((customer) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: Color(0xFFFF9933).withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: const Icon(Icons.person, color: Color(0xFFFF9933)),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    customer.name ?? customer.phone ?? 'Guest Customer',
+                                    style: const TextStyle(fontWeight: FontWeight.w500),
+                                  ),
+                                  Text(
+                                    '${customer.totalOrders} orders • ${_getOrderTypeLabel(customer.mostUsedOrderType)}',
+                                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  formatIndianCurrency(settings.currency, customer.totalSpent),
+                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                Text(
+                                  formatIndianCurrency(settings.currency, customer.averageOrderValue),
+                                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      )),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            // Customer Data Table Section
+            if (customerData.isNotEmpty) ...[
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.table_view, color: Color(0xFFFF9933)),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'Customer Database',
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                          const Spacer(),
+                          Tooltip(
+                            message: 'Download Customer Database as CSV',
+                            child: IconButton(
+                              onPressed: () => _downloadCustomerCSV(context, customerData.values.toList(), settings),
+                              icon: const Icon(Icons.download),
+                              style: IconButton.styleFrom(
+                                backgroundColor: const Color(0xFFFF9933),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.all(12),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey[300]!),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: DataTable(
+                            headingRowColor: MaterialStateProperty.all(Colors.grey[100]),
+                            columns: const [
+                              DataColumn(
+                                label: Text(
+                                  'Customer Name',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                              DataColumn(
+                                label: Text(
+                                  'Phone Number',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                              DataColumn(
+                                label: Text(
+                                  'Email Address',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                              DataColumn(
+                                label: Text(
+                                  'Address',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                              DataColumn(
+                                label: Text(
+                                  'Total Orders',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                              DataColumn(
+                                label: Text(
+                                  'Total Spent',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            ],
+                            rows: customerNotifier.sortedCustomers.map((customer) {
+                              return DataRow(
+                                cells: [
+                                  DataCell(
+                                    Text(customer.name ?? 'N/A'),
+                                    onTap: () => _showCustomerDetails(context, customer, settings),
+                                  ),
+                                  DataCell(
+                                    Text(customer.phone ?? 'N/A'),
+                                    onTap: () => _showCustomerDetails(context, customer, settings),
+                                  ),
+                                  DataCell(
+                                    Text(customer.email ?? 'N/A'),
+                                    onTap: () => _showCustomerDetails(context, customer, settings),
+                                  ),
+                                  DataCell(
+                                    SizedBox(
+                                      width: 200,
+                                      child: Text(
+                                        customer.address ?? 'N/A',
+                                        overflow: TextOverflow.ellipsis,
+                                        maxLines: 2,
+                                      ),
+                                    ),
+                                    onTap: () => _showCustomerDetails(context, customer, settings),
+                                  ),
+                                  DataCell(
+                                    Text(customer.totalOrders.toString()),
+                                    onTap: () => _showCustomerDetails(context, customer, settings),
+                                  ),
+                                  DataCell(
+                                    Text(formatIndianCurrency(settings.currency, customer.totalSpent)),
+                                    onTap: () => _showCustomerDetails(context, customer, settings),
+                                  ),
+                                ],
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+
+            // Empty State
+            if (totalCustomers == 0)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    children: [
+                      const Icon(
+                        Icons.people_outline,
+                        size: 64,
+                        color: Colors.grey,
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'No Customer Data Yet',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Customer data will appear here after orders are placed with customer information.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _getOrderTypeLabel(OrderType type) {
+    switch (type) {
+      case OrderType.dineIn:
+        return 'Dine-In';
+      case OrderType.takeaway:
+        return 'Takeaway';
+      case OrderType.delivery:
+        return 'Delivery';
+    }
+  }
+
+  void _downloadCustomerCSV(BuildContext context, List<CustomerData> customers, AppSettings settings) {
+    // Create CSV content
+    final StringBuffer csvBuffer = StringBuffer();
+    
+    // Add CSV headers
+    csvBuffer.writeln('Customer Name,Phone Number,Email Address,Address,Total Orders,Total Spent,Average Order Value,First Order Date,Last Order Date,Preferred Order Type');
+    
+    // Add customer data rows
+    for (final customer in customers) {
+      final name = _escapeCSVField(customer.name ?? 'N/A');
+      final phone = _escapeCSVField(customer.phone ?? 'N/A');
+      final email = _escapeCSVField(customer.email ?? 'N/A');
+      final address = _escapeCSVField(customer.address ?? 'N/A');
+      final totalOrders = customer.totalOrders.toString();
+      final totalSpent = customer.totalSpent.toStringAsFixed(2);
+      final avgOrderValue = customer.averageOrderValue.toStringAsFixed(2);
+      final firstOrderDate = _formatDateForCSV(customer.firstOrderDate);
+      final lastOrderDate = _formatDateForCSV(customer.lastOrderDate);
+      final preferredType = _getOrderTypeLabel(customer.mostUsedOrderType);
+      
+      csvBuffer.writeln('$name,$phone,$email,$address,$totalOrders,$totalSpent,$avgOrderValue,$firstOrderDate,$lastOrderDate,$preferredType');
+    }
+    
+    // Create downloadable content
+    final csvContent = csvBuffer.toString();
+    final fileName = 'customer_database_${DateTime.now().toIso8601String().split('T')[0]}.csv';
+    
+    // For web, we'll use the download functionality
+    _downloadFile(context, csvContent, fileName, 'text/csv');
+  }
+
+  String _escapeCSVField(String field) {
+    // Escape commas, quotes, and newlines in CSV fields
+    if (field.contains(',') || field.contains('"') || field.contains('\n')) {
+      return '"${field.replaceAll('"', '""')}"';
+    }
+    return field;
+  }
+
+  String _formatDateForCSV(DateTime date) {
+    return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
+  }
+
+  void _downloadFile(BuildContext context, String content, String fileName, String mimeType) {
+    try {
+      // For Flutter web, we'll use the html package
+      // Create a blob and download it
+      final bytes = utf8.encode(content);
+      final blob = html.Blob([bytes], mimeType);
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      
+      final anchor = html.document.createElement('a') as html.AnchorElement
+        ..href = url
+        ..style.display = 'none'
+        ..download = fileName;
+      
+      html.document.body?.children.add(anchor);
+      anchor.click();
+      html.document.body?.children.remove(anchor);
+      html.Url.revokeObjectUrl(url);
+      
+      // Show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Customer database downloaded as $fileName'),
+          backgroundColor: const Color(0xFFFF9933),
+        ),
+      );
+    } catch (e) {
+      // Fallback: show CSV content in a dialog for copying
+      _showCSVContent(context, content, fileName);
+    }
+  }
+
+  void _showCSVContent(BuildContext context, String csvContent, String fileName) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('CSV Download'),
+        content: SizedBox(
+          width: 600,
+          height: 400,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Copy the content below and save as $fileName:'),
+              const SizedBox(height: 16),
+              Expanded(
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: SingleChildScrollView(
+                    child: SelectableText(
+                      csvContent,
+                      style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: csvContent));
+              Navigator.of(context).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('CSV content copied to clipboard')),
+              );
+            },
+            child: const Text('Copy to Clipboard'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showCustomerDetails(BuildContext context, CustomerData customer, AppSettings settings) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(customer.name ?? customer.phone ?? 'Customer Details'),
+        content: SizedBox(
+          width: 300,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (customer.name != null) ...[
+                const Text('Name:', style: TextStyle(fontWeight: FontWeight.w500)),
+                Text(customer.name!),
+                const SizedBox(height: 8),
+              ],
+              if (customer.phone != null) ...[
+                const Text('Phone:', style: TextStyle(fontWeight: FontWeight.w500)),
+                Text(customer.phone!),
+                const SizedBox(height: 8),
+              ],
+              if (customer.email != null) ...[
+                const Text('Email:', style: TextStyle(fontWeight: FontWeight.w500)),
+                Text(customer.email!),
+                const SizedBox(height: 8),
+              ],
+              if (customer.address != null) ...[
+                const Text('Address:', style: TextStyle(fontWeight: FontWeight.w500)),
+                Text(customer.address!),
+                const SizedBox(height: 8),
+              ],
+              const Divider(),
+              const Text('Order Statistics:', style: TextStyle(fontWeight: FontWeight.w500)),
+              const SizedBox(height: 4),
+              Text('Total Orders: ${customer.totalOrders}'),
+              Text('Total Spent: ${formatIndianCurrency(settings.currency, customer.totalSpent)}'),
+              Text('Average Order: ${formatIndianCurrency(settings.currency, customer.averageOrderValue)}'),
+              Text('Preferred Type: ${_getOrderTypeLabel(customer.mostUsedOrderType)}'),
+              const SizedBox(height: 4),
+              Text('First Order: ${formatDateTime(customer.firstOrderDate)}'),
+              Text('Last Order: ${formatDateTime(customer.lastOrderDate)}'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 }
