@@ -12,7 +12,12 @@ class KOTScreen extends ConsumerWidget {
     final settings = ref.watch(settingsProvider);
 
     // Filter orders that are open (need to be prepared)
-    final openOrders = orders.where((order) => order.status == OrderStatus.pending).toList();
+    final openOrders = orders.where((order) => order.status == OrderStatus.preparing).toList();
+    print('DEBUG KOT: Total orders: ${orders.length}');
+    print('DEBUG KOT: Orders with preparing status: ${openOrders.length}');
+    for (final order in orders) {
+      print('DEBUG KOT: Order ${order.id.substring(order.id.length - 6)} - Status: ${order.status}');
+    }
     
     return Scaffold(
       appBar: AppBar(
@@ -465,7 +470,7 @@ class KOTScreen extends ConsumerWidget {
     buffer.writeln('--------------------------------');
     
     final totalOrders = orders.length;
-    final pendingOrders = orders.where((o) => o.status == OrderStatus.pending).length;
+    final preparingOrders = orders.where((o) => o.status == OrderStatus.preparing).length;
     final readyOrders = orders.where((o) => o.status == OrderStatus.ready).length;
     final completedOrders = orders.where((o) => o.status == OrderStatus.completed).length;
     final totalItems = orders.fold(0, (sum, order) => sum + order.items.fold(0, (itemSum, item) => itemSum + item.quantity));
@@ -477,7 +482,7 @@ class KOTScreen extends ConsumerWidget {
     
     buffer.writeln('KITCHEN METRICS:');
     buffer.writeln('Total Orders: $totalOrders');
-    buffer.writeln('Pending: $pendingOrders');
+    buffer.writeln('Preparing: $preparingOrders');
     buffer.writeln('Ready: $readyOrders'); 
     buffer.writeln('Completed: $completedOrders');
     buffer.writeln('Total Items: $totalItems');
@@ -495,7 +500,7 @@ class KOTScreen extends ConsumerWidget {
     if (orders.isNotEmpty) {
       buffer.writeln('ORDER DETAILS:');
       for (final order in orders) {
-        final statusIcon = order.status == OrderStatus.pending ? '⏳' :
+        final statusIcon = order.status == OrderStatus.preparing ? '⏳' :
                           order.status == OrderStatus.ready ? '✅' : '🏁';
         buffer.writeln('$statusIcon Order #${order.id.substring(order.id.length - 6)} - ${order.type.name.toUpperCase()}');
         buffer.writeln('   Time: ${order.createdAt.hour}:${order.createdAt.minute.toString().padLeft(2, '0')}');

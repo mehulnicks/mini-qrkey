@@ -1065,6 +1065,43 @@ void main() {
   runApp(const ProviderScope(child: QSRApp()));
 }
 
+// Utility function for optimized toast messages
+void showOptimizedToast(BuildContext context, String message, {
+  Color? color,
+  Duration? duration,
+  IconData? icon,
+  bool dismissPrevious = true,
+}) {
+  // Dismiss previous SnackBar if needed
+  if (dismissPrevious) {
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+  }
+  
+  final backgroundColor = color ?? Colors.green;
+  final displayDuration = duration ?? const Duration(seconds: 2);
+  
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Row(
+        children: [
+          if (icon != null) ...[
+            Icon(icon, color: Colors.white, size: 20),
+            const SizedBox(width: 8),
+          ],
+          Expanded(child: Text(message)),
+        ],
+      ),
+      backgroundColor: backgroundColor,
+      duration: displayDuration,
+      behavior: SnackBarBehavior.floating,
+      margin: const EdgeInsets.all(16),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+      ),
+    ),
+  );
+}
+
 class QSRApp extends StatelessWidget {
   const QSRApp({super.key});
 
@@ -1234,6 +1271,7 @@ enum PaymentMethodType {
   netBanking,
   wallet,
   giftCard,
+  custom,
 }
 
 // Printer Management System
@@ -2446,6 +2484,58 @@ class PaymentConfigNotifier extends StateNotifier<PaymentSystemConfig> {
         .where((method) => state.enabledMethods.contains(method.type))
         .toList();
   }
+
+  Future<void> addCustomPaymentMethod(String name, String? icon) async {
+    print('Adding custom payment method: $name with icon: $icon');
+    
+    final customId = 'custom_${DateTime.now().millisecondsSinceEpoch}';
+    final customMethod = PaymentMethodConfig(
+      id: customId,
+      name: name,
+      type: PaymentMethodType.custom,
+      icon: icon ?? '💳',
+    );
+    
+    print('Created custom method: ${customMethod.toJson()}');
+    
+    final updatedMethods = List<PaymentMethodConfig>.from(state.availableMethods);
+    updatedMethods.add(customMethod);
+    
+    print('Total methods before update: ${state.availableMethods.length}');
+    print('Total methods after update: ${updatedMethods.length}');
+    
+    state = state.copyWith(availableMethods: updatedMethods);
+    
+    print('State updated. Current available methods count: ${state.availableMethods.length}');
+    
+    await _saveConfig();
+    
+    print('Configuration saved successfully');
+  }
+
+  Future<void> removeCustomPaymentMethod(String methodId) async {
+    final updatedMethods = state.availableMethods
+        .where((method) => method.id != methodId)
+        .toList();
+    
+    // Also remove from enabled methods if it was enabled
+    final updatedEnabledMethods = Set<PaymentMethodType>.from(state.enabledMethods);
+    final methodToRemove = state.availableMethods.firstWhere((m) => m.id == methodId);
+    if (methodToRemove.type == PaymentMethodType.custom) {
+      // For custom methods, we need to check if this specific method was enabled
+      // Since custom methods share the same type, we'll disable the type if this was the last custom method
+      final remainingCustomMethods = updatedMethods.where((m) => m.type == PaymentMethodType.custom).toList();
+      if (remainingCustomMethods.isEmpty) {
+        updatedEnabledMethods.remove(PaymentMethodType.custom);
+      }
+    }
+    
+    state = state.copyWith(
+      availableMethods: updatedMethods,
+      enabledMethods: updatedEnabledMethods,
+    );
+    await _saveConfig();
+  }
 }
 
 class PaymentHistoryNotifier extends StateNotifier<List<PaymentEntry>> {
@@ -3229,49 +3319,6 @@ class _OrderCompletionPaymentDialogState extends ConsumerState<OrderCompletionPa
                       child: const Text('Cancel', style: TextStyle(fontSize: 16)),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    flex: 2,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: _isFullyPaid
-                            ? const LinearGradient(colors: [Colors.green, Colors.lightGreen])
-                            : const LinearGradient(colors: [Colors.grey, Colors.grey]),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: ElevatedButton(
-                        onPressed: _isFullyPaid ? () {
-                          widget.onPaymentComplete(_payments);
-                          Navigator.pop(context);
-                        } : null,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.transparent,
-                          shadowColor: Colors.transparent,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              _isFullyPaid ? Icons.check_circle : Icons.lock,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              _isFullyPaid ? 'Complete Order' : 'Collect Full Payment',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
                 ],
               ),
             ),
@@ -3360,14 +3407,16 @@ class _OrderCompletionPaymentDialogState extends ConsumerState<OrderCompletionPa
     final amount = double.tryParse(controller?.text ?? '');
     
     if (amount == null || amount <= 0) {
-      _showSnackBar('Please enter a valid amount');
+      _showSnackBar('Please enter a valid amount', 
+        icon: Icons.warning, color: Colors.orange);
       return;
     }
 
     // Validate that payment method is still enabled
     final enabledMethods = ref.read(paymentConfigProvider.notifier).enabledMethodConfigs;
     if (!enabledMethods.any((m) => m.id == _selectedMethod!.id)) {
-      _showSnackBar('This payment method is no longer enabled');
+      _showSnackBar('This payment method is no longer enabled', 
+        icon: Icons.error, color: Colors.red);
       return;
     }
 
@@ -3388,7 +3437,8 @@ class _OrderCompletionPaymentDialogState extends ConsumerState<OrderCompletionPa
     widget.onPaymentComplete(allPayments);
     Navigator.pop(context);
     
-    _showSnackBar('Payment completed successfully with ${_selectedMethod!.name}!');
+    _showSnackBar('Payment completed successfully with ${_selectedMethod!.name}!', 
+      icon: Icons.check_circle, color: Colors.green);
   }
 
   void _addPayment(PaymentMethodConfig method) {
@@ -3396,19 +3446,22 @@ class _OrderCompletionPaymentDialogState extends ConsumerState<OrderCompletionPa
     final amount = double.tryParse(controller?.text ?? '');
     
     if (amount == null || amount <= 0) {
-      _showSnackBar('Please enter a valid amount');
+      _showSnackBar('Please enter a valid amount', 
+        icon: Icons.warning, color: Colors.orange);
       return;
     }
 
     if (amount > _remainingAmount) {
-      _showSnackBar('Amount cannot exceed remaining balance of ₹${_remainingAmount.toStringAsFixed(2)}');
+      _showSnackBar('Amount cannot exceed remaining balance of ₹${_remainingAmount.toStringAsFixed(2)}', 
+        icon: Icons.error, color: Colors.red);
       return;
     }
 
     // Validate that payment method is still enabled
     final enabledMethods = ref.read(paymentConfigProvider.notifier).enabledMethodConfigs;
     if (!enabledMethods.any((m) => m.id == method.id)) {
-      _showSnackBar('This payment method is no longer enabled');
+      _showSnackBar('This payment method is no longer enabled', 
+        icon: Icons.error, color: Colors.red);
       return;
     }
 
@@ -3426,23 +3479,20 @@ class _OrderCompletionPaymentDialogState extends ConsumerState<OrderCompletionPa
       controller?.clear();
     });
 
-    _showSnackBar('Payment of ₹${amount.toStringAsFixed(2)} added successfully');
+    _showSnackBar('Payment of ₹${amount.toStringAsFixed(2)} added successfully', 
+      icon: Icons.add_circle, color: Colors.green);
   }
 
   void _removePayment(int index) {
     setState(() {
       _payments.removeAt(index);
     });
-    _showSnackBar('Payment removed');
+    _showSnackBar('Payment removed', 
+      icon: Icons.remove_circle, color: Colors.orange);
   }
 
-  void _showSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        duration: const Duration(seconds: 2),
-      ),
-    );
+  void _showSnackBar(String message, {IconData? icon, Color? color}) {
+    showOptimizedToast(context, message, icon: icon, color: color);
   }
 }
 
@@ -3497,35 +3547,90 @@ class _PaymentSettingsScreenState extends ConsumerState<PaymentSettingsScreen> {
                 itemBuilder: (context, index) {
                   final method = paymentConfig.availableMethods[index];
                   final isEnabled = paymentConfig.enabledMethods.contains(method.type);
+                  final isCustom = method.type == PaymentMethodType.custom;
 
                   return Card(
-                    child: SwitchListTile(
-                      secondary: CircleAvatar(
-                        child: Text(method.icon ?? method.name.substring(0, 1)),
-                      ),
-                      title: Text(method.name),
-                      subtitle: Text(_getPaymentMethodDescription(method.type)),
-                      value: isEnabled,
-                      onChanged: (value) {
-                        if (value) {
-                          paymentNotifier.enablePaymentMethod(method.type);
-                        } else {
-                          // Ensure at least one payment method remains enabled
-                          if (paymentConfig.enabledMethods.length > 1) {
-                            paymentNotifier.disablePaymentMethod(method.type);
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('At least one payment method must be enabled'),
-                                backgroundColor: Colors.orange,
+                    child: isCustom 
+                      ? ListTile(
+                          leading: CircleAvatar(
+                            child: Text(method.icon ?? method.name.substring(0, 1)),
+                          ),
+                          title: Text(method.name),
+                          subtitle: Text(_getPaymentMethodDescription(method.type)),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Switch(
+                                value: isEnabled,
+                                onChanged: (value) {
+                                  if (value) {
+                                    paymentNotifier.enablePaymentMethod(method.type);
+                                  } else {
+                                    // Ensure at least one payment method remains enabled
+                                    if (paymentConfig.enabledMethods.length > 1) {
+                                      paymentNotifier.disablePaymentMethod(method.type);
+                                    } else {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('At least one payment method must be enabled'),
+                                          backgroundColor: Colors.orange,
+                                        ),
+                                      );
+                                    }
+                                  }
+                                },
                               ),
-                            );
-                          }
-                        }
-                      },
-                    ),
+                              IconButton(
+                                icon: const Icon(Icons.delete, color: Colors.red),
+                                onPressed: () => _confirmDeleteCustomMethod(method),
+                              ),
+                            ],
+                          ),
+                        )
+                      : SwitchListTile(
+                          secondary: CircleAvatar(
+                            child: Text(method.icon ?? method.name.substring(0, 1)),
+                          ),
+                          title: Text(method.name),
+                          subtitle: Text(_getPaymentMethodDescription(method.type)),
+                          value: isEnabled,
+                          onChanged: (value) {
+                            if (value) {
+                              paymentNotifier.enablePaymentMethod(method.type);
+                            } else {
+                              // Ensure at least one payment method remains enabled
+                              if (paymentConfig.enabledMethods.length > 1) {
+                                paymentNotifier.disablePaymentMethod(method.type);
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('At least one payment method must be enabled'),
+                                    backgroundColor: Colors.orange,
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                        ),
                   );
                 },
+              ),
+            ),
+
+            // Add Custom Payment Method Button
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => _showAddCustomPaymentMethodDialog(),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Add Custom Payment Method'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFFF9933),
+                    side: const BorderSide(color: Color(0xFFFF9933)),
+                  ),
+                ),
               ),
             ),
 
@@ -3571,6 +3676,8 @@ class _PaymentSettingsScreenState extends ConsumerState<PaymentSettingsScreen> {
         return 'Digital wallet payments';
       case PaymentMethodType.giftCard:
         return 'Gift card and voucher payments';
+      case PaymentMethodType.custom:
+        return 'Custom payment method';
     }
   }
 
@@ -3619,6 +3726,145 @@ class _PaymentSettingsScreenState extends ConsumerState<PaymentSettingsScreen> {
               }
             },
             child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAddCustomPaymentMethodDialog() {
+    final nameController = TextEditingController();
+    final paymentNotifier = ref.read(paymentConfigProvider.notifier);
+    final parentContext = context; // Capture parent context
+    const defaultIcon = '💳'; // Default icon for custom payment methods
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Add Custom Payment Method'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFF9933).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFFF9933).withOpacity(0.3)),
+                  ),
+                  child: const Text(
+                    defaultIcon,
+                    style: TextStyle(fontSize: 24),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Payment Method Name',
+                      border: OutlineInputBorder(),
+                      hintText: 'e.g., Store Credit, Voucher, etc.',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              nameController.dispose();
+              Navigator.pop(dialogContext);
+            },
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final name = nameController.text.trim();
+              if (name.isNotEmpty) {
+                try {
+                  await paymentNotifier.addCustomPaymentMethod(name, defaultIcon);
+                  
+                  // Close dialog first
+                  Navigator.pop(dialogContext);
+                  
+                  // Dispose controller after dialog is closed
+                  nameController.dispose();
+                  
+                  // Then show success message with parent context
+                  showOptimizedToast(
+                    parentContext,
+                    'Payment method "$name" added successfully',
+                    icon: Icons.payment,
+                  );
+                } catch (e) {
+                  print('Error adding custom payment method: $e');
+                  // Close dialog first
+                  Navigator.pop(dialogContext);
+                  
+                  // Dispose controller after dialog is closed
+                  nameController.dispose();
+                  
+                  // Then show error message with parent context
+                  showOptimizedToast(
+                    parentContext,
+                    'Error adding payment method: $e',
+                    icon: Icons.error,
+                    color: Colors.red,
+                  );
+                }
+              } else {
+                showOptimizedToast(
+                  dialogContext,
+                  'Please enter a payment method name',
+                  icon: Icons.warning,
+                  color: Colors.orange,
+                );
+              }
+            },
+            child: const Text('Add'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF9933),
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteCustomMethod(PaymentMethodConfig method) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Payment Method'),
+        content: Text('Are you sure you want to delete "${method.name}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              ref.read(paymentConfigProvider.notifier).removeCustomPaymentMethod(method.id);
+              Navigator.pop(context);
+              
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Payment method "${method.name}" deleted'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            },
+            child: const Text('Delete'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
           ),
         ],
       ),
@@ -4291,6 +4537,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
       barrierDismissible: false,
       builder: (context) => Consumer(
         builder: (context, ref, child) {
+          final currentOrder = ref.watch(currentOrderProvider); // Watch for changes
           final orderType = ref.watch(orderTypeProvider);
           final settings = ref.watch(settingsProvider);
           final orderDiscount = ref.watch(currentOrderDiscountProvider);
@@ -4524,81 +4771,31 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                         },
                       ),
                     ),
-                    const Divider(height: 24),
-                    // Order totals with discount breakdown
-                    Column(
-                      children: [
-                        // Show item subtotal breakdown if there are discounts
-                        if (ref.read(currentOrderProvider.notifier).hasDiscounts) ...[
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('Items Subtotal:'),
-                              Text(formatIndianCurrency(settings.currency, 
-                                currentOrder.fold(0.0, (sum, item) => sum + item.subtotal))),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('Item Discounts:', style: TextStyle(color: Colors.green)),
-                              Text('-${formatIndianCurrency(settings.currency, 
-                                ref.read(currentOrderProvider.notifier).itemsDiscountAmount)}',
-                                style: const TextStyle(color: Colors.green)),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('After Item Discounts:'),
-                              Text(formatIndianCurrency(settings.currency, subtotal)),
-                            ],
-                          ),
-                        ] else ...[
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('Subtotal:'),
-                              Text(formatIndianCurrency(settings.currency, subtotal)),
-                            ],
-                          ),
-                        ],
-                      ],
+
+                    
+                    // Special instructions field
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _notesController,
+                      decoration: InputDecoration(
+                        hintText: 'Special instructions or notes for this order',
+                        prefixIcon: const Icon(Icons.note_outlined, size: 18),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
+                        ),
+                        filled: true,
+                        fillColor: Colors.white,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      ),
+                      style: const TextStyle(fontSize: 14),
+                      maxLines: 2,
+                      minLines: 1,
                     ),
-                    
-                    // Delivery/Packaging charges for delivery orders
-                    if (orderType == OrderType.delivery) ...[
-                      const SizedBox(height: 4),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Delivery Charge:'),
-                          Text(formatIndianCurrency(settings.currency, _deliveryCharge)),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Packaging Charge:'),
-                          Text(formatIndianCurrency(settings.currency, _packagingCharge)),
-                        ],
-                      ),
-                    ] else if (orderType == OrderType.takeaway) ...[
-                      const SizedBox(height: 4),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Packaging Charge:'),
-                          Text(formatIndianCurrency(settings.currency, _packagingCharge)),
-                        ],
-                      ),
-                    ],
-                    
+
                     // Advanced Order Discount Section
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 12),
                     GestureDetector(
                       onTap: () => _showOrderDiscountDialog(),
                       child: Container(
@@ -4636,81 +4833,6 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                       ),
                     ),
                     
-                    // Show order discount if applied
-                    if (discount > 0) ...[
-                      const SizedBox(height: 4),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text('Order Discount (${orderDiscount!.type == DiscountType.percentage ? "${orderDiscount.value.toStringAsFixed(0)}%" : formatIndianCurrency(settings.currency, orderDiscount.value)}):', 
-                               style: const TextStyle(color: Colors.green)),
-                          Text('-${formatIndianCurrency(settings.currency, discount)}', 
-                               style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w500)),
-                        ],
-                      ),
-                      if (orderDiscount.reason != null && orderDiscount.reason!.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Expanded(
-                              child: Text('  (${orderDiscount.reason})', 
-                                   style: TextStyle(color: Colors.green[600], fontSize: 12, fontStyle: FontStyle.italic)),
-                            ),
-                          ],
-                        ),
-                      ],
-                      const SizedBox(height: 4),
-                      // Show discounted subtotal/taxable amount
-                      if (orderDiscount.applyToSubtotal) ...[
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text('Discounted Subtotal:'),
-                            Text(formatIndianCurrency(settings.currency, subtotal - discount)),
-                          ],
-                        ),
-                        if (charges > 0) ...[
-                          const SizedBox(height: 4),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('After Charges:'),
-                              Text(formatIndianCurrency(settings.currency, (subtotal - discount) + charges)),
-                            ],
-                          ),
-                        ],
-                      ] else ...[
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text('Discounted Amount:'),
-                            Text(formatIndianCurrency(settings.currency, discountedAmount)),
-                          ],
-                        ),
-                      ],
-                    ],
-                    
-                    const SizedBox(height: 4),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('GST (${(settings.taxRate * 100).toInt()}%):'),
-                        Text(formatIndianCurrency(settings.currency, tax)),
-                      ],
-                    ),
-                    const Divider(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Total:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                        Text(
-                          formatIndianCurrency(settings.currency, total),
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFFFF9933)),
-                        ),
-                      ],
-                    ),
-                    
 
                   ],
                 ),
@@ -4718,7 +4840,208 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
               
               const SizedBox(height: 12),
               
-              // Collapsible Customer Information & Instructions Section
+              // Collapsible Pricing Details Section
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.grey[50],
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey[200]!),
+                ),
+                child: ExpansionTile(
+                  initiallyExpanded: false,
+                  tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  title: Row(
+                    children: [
+                      Icon(Icons.receipt_outlined, color: Colors.grey[700], size: 18),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Pricing Details',
+                          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                        ),
+                      ),
+                    ],
+                  ),
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey[200]!),
+                      ),
+                      child: Column(
+                        children: [
+                          // Show item subtotal breakdown if there are discounts
+                          if (currentOrder.any((item) => item.hasDiscount)) ...[
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('Items Subtotal:'),
+                                Text(formatIndianCurrency(settings.currency, 
+                                  currentOrder.fold(0.0, (sum, item) => sum + item.subtotal))),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('Item Discounts:', style: TextStyle(color: Colors.green)),
+                                Text('-${formatIndianCurrency(settings.currency, 
+                                  currentOrder.fold(0.0, (sum, item) => sum + item.discountAmount))}',
+                                  style: const TextStyle(color: Colors.green)),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('After Item Discounts:'),
+                                Text(formatIndianCurrency(settings.currency, subtotal)),
+                              ],
+                            ),
+                          ] else ...[
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('Subtotal:'),
+                                Text(formatIndianCurrency(settings.currency, subtotal)),
+                              ],
+                            ),
+                          ],
+                          
+                          // Delivery/Packaging charges for delivery orders
+                          if (orderType == OrderType.delivery) ...[
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('Delivery Charge:'),
+                                Text(formatIndianCurrency(settings.currency, _deliveryCharge)),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('Packaging Charge:'),
+                                Text(formatIndianCurrency(settings.currency, _packagingCharge)),
+                              ],
+                            ),
+                          ] else if (orderType == OrderType.takeaway) ...[
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('Packaging Charge:'),
+                                Text(formatIndianCurrency(settings.currency, _packagingCharge)),
+                              ],
+                            ),
+                          ],
+                          
+                          // Show order discount if applied
+                          if (discount > 0) ...[
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Order Discount (${orderDiscount!.type == DiscountType.percentage ? "${orderDiscount.value.toStringAsFixed(0)}%" : formatIndianCurrency(settings.currency, orderDiscount.value)}):', 
+                                     style: const TextStyle(color: Colors.green)),
+                                Text('-${formatIndianCurrency(settings.currency, discount)}', 
+                                     style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w500)),
+                              ],
+                            ),
+                            if (orderDiscount.reason != null && orderDiscount.reason!.isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Text('  (${orderDiscount.reason})', 
+                                         style: TextStyle(color: Colors.green[600], fontSize: 12, fontStyle: FontStyle.italic)),
+                                  ),
+                                ],
+                              ),
+                            ],
+                            const SizedBox(height: 4),
+                            // Show discounted subtotal/taxable amount
+                            if (orderDiscount.applyToSubtotal) ...[
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text('Discounted Subtotal:'),
+                                  Text(formatIndianCurrency(settings.currency, subtotal - discount)),
+                                ],
+                              ),
+                              if (charges > 0) ...[
+                                const SizedBox(height: 4),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text('After Charges:'),
+                                    Text(formatIndianCurrency(settings.currency, (subtotal - discount) + charges)),
+                                  ],
+                                ),
+                              ],
+                            ] else ...[
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text('Discounted Amount:'),
+                                  Text(formatIndianCurrency(settings.currency, discountedAmount)),
+                                ],
+                              ),
+                            ],
+                          ],
+                          
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('GST (${(settings.taxRate * 100).toInt()}%):'),
+                              Text(formatIndianCurrency(settings.currency, tax)),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              
+              const SizedBox(height: 12),
+              
+              // Always Visible Total Section
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFFF9933), width: 2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFFF9933).withOpacity(0.1),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Total:', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    Text(
+                      formatIndianCurrency(settings.currency, total),
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFFFF9933)),
+                    ),
+                  ],
+                ),
+              ),
+              
+              const SizedBox(height: 12),
+              
+              // Collapsible Customer Information Section
               Container(
                 decoration: BoxDecoration(
                   color: Colors.grey[50],
@@ -4734,7 +5057,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                       const SizedBox(width: 8),
                       const Expanded(
                         child: Text(
-                          'Customer & Instructions',
+                          'Customer Information',
                           style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
                         ),
                       ),
@@ -4761,233 +5084,107 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                       ),
                       child: Column(
                         children: [
-                          // Customer Name and Phone - responsive layout
-                          MediaQuery.of(context).size.width < 400 
-                            ? Column(
-                                children: [
-                                  TextField(
-                                    controller: _customerNameController,
-                                    decoration: InputDecoration(
-                                      labelText: 'Customer Name',
-                                      prefixIcon: const Icon(Icons.person, size: 18),
-                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                      focusedBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                        borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
-                                      ),
-                                      filled: true,
-                                      fillColor: Colors.white,
-                                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                      labelStyle: const TextStyle(fontSize: 12),
-                                    ),
-                                    style: const TextStyle(fontSize: 14),
+                          // Customer Name and Phone - vertical layout
+                          Column(
+                            children: [
+                              TextField(
+                                controller: _customerNameController,
+                                decoration: InputDecoration(
+                                  labelText: 'Customer Name',
+                                  prefixIcon: const Icon(Icons.person, size: 18),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
                                   ),
-                                  const SizedBox(height: 8),
-                                  TextField(
-                                    controller: _customerPhoneController,
-                                    decoration: InputDecoration(
-                                      labelText: 'Phone Number (10 digits)',
-                                      prefixIcon: const Icon(Icons.phone, size: 18),
-                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                      focusedBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                        borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
-                                      ),
-                                      errorBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                        borderSide: const BorderSide(color: Colors.red, width: 1),
-                                      ),
-                                      filled: true,
-                                      fillColor: Colors.white,
-                                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                      labelStyle: const TextStyle(fontSize: 12),
-                                      errorText: _customerPhoneController.text.isNotEmpty 
-                                          ? _validatePhoneNumber(_customerPhoneController.text) 
-                                          : null,
-                                    ),
-                                    style: const TextStyle(fontSize: 14),
-                                    keyboardType: TextInputType.number,
-                                    inputFormatters: [
-                                      FilteringTextInputFormatter.digitsOnly,
-                                      LengthLimitingTextInputFormatter(10),
-                                    ],
-                                    onChanged: (value) {
-                                      setState(() {}); // Trigger rebuild for validation
-                                    },
-                                  ),
-                                ],
-                              )
-                            : Row(
-                                children: [
-                                  Expanded(
-                                    child: TextField(
-                                      controller: _customerNameController,
-                                      decoration: InputDecoration(
-                                        labelText: 'Customer Name',
-                                        prefixIcon: const Icon(Icons.person, size: 18),
-                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                        focusedBorder: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(8),
-                                          borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
-                                        ),
-                                        filled: true,
-                                        fillColor: Colors.white,
-                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                        labelStyle: const TextStyle(fontSize: 12),
-                                      ),
-                                      style: const TextStyle(fontSize: 14),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: TextField(
-                                      controller: _customerPhoneController,
-                                      decoration: InputDecoration(
-                                        labelText: 'Phone Number (10 digits)',
-                                        prefixIcon: const Icon(Icons.phone, size: 18),
-                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                        focusedBorder: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(8),
-                                          borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
-                                        ),
-                                        errorBorder: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(8),
-                                          borderSide: const BorderSide(color: Colors.red, width: 1),
-                                        ),
-                                        filled: true,
-                                        fillColor: Colors.white,
-                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                        labelStyle: const TextStyle(fontSize: 12),
-                                        errorText: _customerPhoneController.text.isNotEmpty 
-                                            ? _validatePhoneNumber(_customerPhoneController.text) 
-                                            : null,
-                                      ),
-                                      style: const TextStyle(fontSize: 14),
-                                      keyboardType: TextInputType.number,
-                                      inputFormatters: [
-                                        FilteringTextInputFormatter.digitsOnly,
-                                        LengthLimitingTextInputFormatter(10),
-                                      ],
-                                      onChanged: (value) {
-                                        setState(() {}); // Trigger rebuild for validation
-                                      },
-                                    ),
-                                  ),
-                                ],
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  labelStyle: const TextStyle(fontSize: 12),
+                                ),
+                                style: const TextStyle(fontSize: 14),
                               ),
-                          
-                          const SizedBox(height: 12),
-                          
-                          // Email and Address fields
-                          MediaQuery.of(context).size.width < 400 
-                            ? Column(
-                                children: [
-                                  TextField(
-                                    controller: _customerEmailController,
-                                    decoration: InputDecoration(
-                                      labelText: 'Email Address',
-                                      prefixIcon: const Icon(Icons.email, size: 18),
-                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                      focusedBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                        borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
-                                      ),
-                                      filled: true,
-                                      fillColor: Colors.white,
-                                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                      labelStyle: const TextStyle(fontSize: 12),
-                                    ),
-                                    style: const TextStyle(fontSize: 14),
-                                    keyboardType: TextInputType.emailAddress,
+                              const SizedBox(height: 12),
+                              TextField(
+                                controller: _customerPhoneController,
+                                decoration: InputDecoration(
+                                  labelText: 'Phone Number (10 digits)',
+                                  prefixIcon: const Icon(Icons.phone, size: 18),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
                                   ),
-                                  const SizedBox(height: 8),
-                                  TextField(
-                                    controller: _customerAddressController,
-                                    decoration: InputDecoration(
-                                      labelText: 'Address',
-                                      prefixIcon: const Icon(Icons.location_on, size: 18),
-                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                      focusedBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                        borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
-                                      ),
-                                      filled: true,
-                                      fillColor: Colors.white,
-                                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                      labelStyle: const TextStyle(fontSize: 12),
-                                    ),
-                                    style: const TextStyle(fontSize: 14),
-                                    maxLines: 2,
+                                  errorBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: const BorderSide(color: Colors.red, width: 1),
                                   ),
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  labelStyle: const TextStyle(fontSize: 12),
+                                  errorText: _customerPhoneController.text.isNotEmpty 
+                                      ? _validatePhoneNumber(_customerPhoneController.text) 
+                                      : null,
+                                ),
+                                style: const TextStyle(fontSize: 14),
+                                keyboardType: TextInputType.number,
+                                inputFormatters: [
+                                  FilteringTextInputFormatter.digitsOnly,
+                                  LengthLimitingTextInputFormatter(10),
                                 ],
-                              )
-                            : Row(
-                                children: [
-                                  Expanded(
-                                    child: TextField(
-                                      controller: _customerEmailController,
-                                      decoration: InputDecoration(
-                                        labelText: 'Email Address',
-                                        prefixIcon: const Icon(Icons.email, size: 18),
-                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                        focusedBorder: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(8),
-                                          borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
-                                        ),
-                                        filled: true,
-                                        fillColor: Colors.white,
-                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                        labelStyle: const TextStyle(fontSize: 12),
-                                      ),
-                                      style: const TextStyle(fontSize: 14),
-                                      keyboardType: TextInputType.emailAddress,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: TextField(
-                                      controller: _customerAddressController,
-                                      decoration: InputDecoration(
-                                        labelText: 'Address',
-                                        prefixIcon: const Icon(Icons.location_on, size: 18),
-                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                        focusedBorder: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(8),
-                                          borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
-                                        ),
-                                        filled: true,
-                                        fillColor: Colors.white,
-                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                        labelStyle: const TextStyle(fontSize: 12),
-                                      ),
-                                      style: const TextStyle(fontSize: 14),
-                                      maxLines: 2,
-                                    ),
-                                  ),
-                                ],
+                                onChanged: (value) {
+                                  setState(() {}); // Trigger rebuild for validation
+                                },
                               ),
-                          
-                          const SizedBox(height: 12),
-                          
-                          // Special instructions field
-                          TextField(
-                            controller: _notesController,
-                            decoration: InputDecoration(
-                              hintText: 'Special instructions or notes for this order',
-                              prefixIcon: const Icon(Icons.note_outlined, size: 18),
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
-                              ),
-                              filled: true,
-                              fillColor: Colors.white,
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                            ),
-                            style: const TextStyle(fontSize: 14),
-                            maxLines: 2,
-                            minLines: 1,
+                            ],
                           ),
+                          
+                          const SizedBox(height: 12),
+                          
+                          // Email and Address fields - vertical layout
+                          Column(
+                            children: [
+                              TextField(
+                                controller: _customerEmailController,
+                                decoration: InputDecoration(
+                                  labelText: 'Email Address',
+                                  prefixIcon: const Icon(Icons.email, size: 18),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
+                                  ),
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  labelStyle: const TextStyle(fontSize: 12),
+                                ),
+                                style: const TextStyle(fontSize: 14),
+                                keyboardType: TextInputType.emailAddress,
+                              ),
+                              const SizedBox(height: 12),
+                              TextField(
+                                controller: _customerAddressController,
+                                decoration: InputDecoration(
+                                  labelText: 'Address',
+                                  prefixIcon: const Icon(Icons.location_on, size: 18),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
+                                  ),
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  labelStyle: const TextStyle(fontSize: 12),
+                                ),
+                                style: const TextStyle(fontSize: 14),
+                                maxLines: 2,
+                              ),
+                            ],
+                          ),
+
                         ],
                       ),
                     ),
@@ -5271,6 +5468,8 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     
     // Add order to the orders provider
     ref.read(ordersProvider.notifier).addOrder(orderWithoutPayment);
+    print('DEBUG: Order added with status: ${orderWithoutPayment.status}');
+    print('DEBUG: Order ID: ${orderWithoutPayment.id}');
     
     // Update customer analytics data if customer info is provided
     if (customerInfo != null) {
@@ -5293,13 +5492,12 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
       _serviceCharge = 0.0;
     });
 
-    // Show success message
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Order placed successfully! Payment will be collected before completion.'),
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 3),
-      ),
+    // Show optimized success message
+    showOptimizedToast(
+      context, 
+      'Order #${newOrder.id.substring(0, 8)} placed successfully!',
+      icon: Icons.check_circle,
+      duration: const Duration(seconds: 2),
     );
   }
 
@@ -5453,14 +5651,15 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
           ),
           ElevatedButton.icon(
             onPressed: () {
-              // In a real implementation, this would send to printer
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('KOT sent to kitchen printer'),
-                  backgroundColor: Colors.green,
-                ),
-              );
               Navigator.pop(context);
+              // Show optimized KOT print message
+              showOptimizedToast(
+                context,
+                'KOT sent to kitchen printer',
+                icon: Icons.print,
+                color: Colors.blue,
+                duration: const Duration(seconds: 2),
+              );
             },
             icon: const Icon(Icons.print),
             label: const Text('Print Again'),
