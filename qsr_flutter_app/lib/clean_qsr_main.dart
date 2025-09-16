@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'kot_screen.dart';
-import 'dart:html' as html;
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 // Multi-language Support
 class AppLocalizations {
@@ -60,6 +61,15 @@ class AppLocalizations {
       'cancel_order': 'Cancel Order',
       'edit_order': 'Edit Order',
       'complete_order': 'Complete Order',
+      'collect_payment': 'Collect Payment',
+      'payment_required': 'Payment Required',
+      'select_payment_method': 'Select Payment Method',
+      'enter_amount': 'Enter Amount',
+      'add_payment': 'Add Payment',
+      'added_payments': 'Added Payments',
+      'collect_full_payment': 'Collect Full Payment',
+      'payment_collected': 'Payment collected successfully! Order completed.',
+      'order_placed_pending_payment': 'Order placed successfully! Payment will be collected before completion.',
       'pending': 'Pending',
       'confirmed': 'Confirmed',
       'preparing': 'Preparing',
@@ -210,6 +220,15 @@ class AppLocalizations {
       'cancel_order': 'आर्डर रद्द करें',
       'edit_order': 'आर्डर संपादित करें',
       'complete_order': 'आर्डर पूरा करें',
+      'collect_payment': 'भुगतान एकत्रित करें',
+      'payment_required': 'भुगतान आवश्यक',
+      'select_payment_method': 'भुगतान विधि चुनें',
+      'enter_amount': 'राशि दर्ज करें',
+      'add_payment': 'भुगतान जोड़ें',
+      'added_payments': 'जोड़े गए भुगतान',
+      'collect_full_payment': 'पूरा भुगतान एकत्रित करें',
+      'payment_collected': 'भुगतान सफलतापूर्वक एकत्रित! आर्डर पूरा हुआ।',
+      'order_placed_pending_payment': 'आर्डर सफलतापूर्वक दिया गया! पूरा करने से पहले भुगतान एकत्रित किया जाएगा।',
       'pending': 'लंबित',
       'confirmed': 'पुष्टि',
       'preparing': 'तैयार हो रहा',
@@ -1207,6 +1226,400 @@ enum OrderStatus { pending, confirmed, preparing, ready, completed, cancelled }
 enum PaymentStatus { pending, partial, completed, refunded }
 enum PaymentMethod { cash, card, upi, online }
 
+// Enhanced Payment System
+enum PaymentMethodType {
+  cash,
+  card,
+  upi,
+  netBanking,
+  wallet,
+  giftCard,
+}
+
+// Printer Management System
+enum PrinterConnectionType {
+  network,
+  usb,
+  bluetooth;
+
+  String get displayName {
+    switch (this) {
+      case PrinterConnectionType.network:
+        return 'Network';
+      case PrinterConnectionType.usb:
+        return 'USB';
+      case PrinterConnectionType.bluetooth:
+        return 'Bluetooth';
+    }
+  }
+}
+
+enum PrinterStatus {
+  connected,
+  disconnected,
+  connecting,
+  printing,
+  error,
+  offline;
+
+  String get displayName {
+    switch (this) {
+      case PrinterStatus.connected:
+        return 'Connected';
+      case PrinterStatus.disconnected:
+        return 'Disconnected';
+      case PrinterStatus.connecting:
+        return 'Connecting';
+      case PrinterStatus.printing:
+        return 'Printing';
+      case PrinterStatus.error:
+        return 'Error';
+      case PrinterStatus.offline:
+        return 'Offline';
+    }
+  }
+
+  Color get color {
+    switch (this) {
+      case PrinterStatus.connected:
+        return Colors.green;
+      case PrinterStatus.disconnected:
+        return Colors.grey;
+      case PrinterStatus.connecting:
+        return Colors.blue;
+      case PrinterStatus.printing:
+        return Colors.orange;
+      case PrinterStatus.error:
+        return Colors.red;
+      case PrinterStatus.offline:
+        return Colors.grey;
+    }
+  }
+}
+
+class PrinterDevice {
+  final String id;
+  final String name;
+  final String address; // IP address for network, device path for USB, MAC for Bluetooth
+  final int? port; // Port number for network printers
+  final PrinterConnectionType connectionType;
+  final PrinterStatus status;
+  final bool isDefault;
+  final DateTime lastConnected;
+  final Map<String, dynamic> settings; // Paper size, print quality, etc.
+
+  const PrinterDevice({
+    required this.id,
+    required this.name,
+    required this.address,
+    this.port,
+    required this.connectionType,
+    this.status = PrinterStatus.disconnected,
+    this.isDefault = false,
+    required this.lastConnected,
+    this.settings = const {},
+  });
+
+  PrinterDevice copyWith({
+    String? id,
+    String? name,
+    String? address,
+    int? port,
+    PrinterConnectionType? connectionType,
+    PrinterStatus? status,
+    bool? isDefault,
+    DateTime? lastConnected,
+    Map<String, dynamic>? settings,
+  }) {
+    return PrinterDevice(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      address: address ?? this.address,
+      port: port ?? this.port,
+      connectionType: connectionType ?? this.connectionType,
+      status: status ?? this.status,
+      isDefault: isDefault ?? this.isDefault,
+      lastConnected: lastConnected ?? this.lastConnected,
+      settings: settings ?? this.settings,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'address': address,
+      'port': port,
+      'connectionType': connectionType.index,
+      'status': status.index,
+      'isDefault': isDefault,
+      'lastConnected': lastConnected.millisecondsSinceEpoch,
+      'settings': settings,
+    };
+  }
+
+  factory PrinterDevice.fromJson(Map<String, dynamic> json) {
+    return PrinterDevice(
+      id: json['id'],
+      name: json['name'],
+      address: json['address'],
+      port: json['port'],
+      connectionType: PrinterConnectionType.values[json['connectionType']],
+      status: PrinterStatus.values[json['status'] ?? 0],
+      isDefault: json['isDefault'] ?? false,
+      lastConnected: DateTime.fromMillisecondsSinceEpoch(json['lastConnected']),
+      settings: Map<String, dynamic>.from(json['settings'] ?? {}),
+    );
+  }
+
+  String get connectionTypeDisplayName {
+    switch (connectionType) {
+      case PrinterConnectionType.network:
+        return 'Network (WiFi/Cable)';
+      case PrinterConnectionType.usb:
+        return 'USB';
+      case PrinterConnectionType.bluetooth:
+        return 'Bluetooth';
+    }
+  }
+
+  String get statusDisplayName {
+    switch (status) {
+      case PrinterStatus.connected:
+        return 'Connected';
+      case PrinterStatus.disconnected:
+        return 'Disconnected';
+      case PrinterStatus.connecting:
+        return 'Connecting';
+      case PrinterStatus.printing:
+        return 'Printing';
+      case PrinterStatus.error:
+        return 'Error';
+      case PrinterStatus.offline:
+        return 'Offline';
+    }
+  }
+
+  Color get statusColor {
+    switch (status) {
+      case PrinterStatus.connected:
+        return Colors.green;
+      case PrinterStatus.disconnected:
+        return Colors.grey;
+      case PrinterStatus.connecting:
+        return Colors.blue;
+      case PrinterStatus.printing:
+        return Colors.orange;
+      case PrinterStatus.error:
+        return Colors.red;
+      case PrinterStatus.offline:
+        return Colors.grey;
+    }
+  }
+}
+
+class PaymentMethodConfig {
+  final String id;
+  final String name;
+  final PaymentMethodType type;
+  final String? icon;
+  final bool isEnabled;
+  final Map<String, dynamic>? config;
+
+  const PaymentMethodConfig({
+    required this.id,
+    required this.name,
+    required this.type,
+    this.icon,
+    this.isEnabled = true,
+    this.config,
+  });
+
+  PaymentMethodConfig copyWith({
+    String? id,
+    String? name,
+    PaymentMethodType? type,
+    String? icon,
+    bool? isEnabled,
+    Map<String, dynamic>? config,
+  }) {
+    return PaymentMethodConfig(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      type: type ?? this.type,
+      icon: icon ?? this.icon,
+      isEnabled: isEnabled ?? this.isEnabled,
+      config: config ?? this.config,
+    );
+  }
+
+  factory PaymentMethodConfig.fromJson(Map<String, dynamic> json) {
+    return PaymentMethodConfig(
+      id: json['id'],
+      name: json['name'],
+      type: PaymentMethodType.values.firstWhere((e) => e.name == json['type']),
+      icon: json['icon'],
+      isEnabled: json['isEnabled'] ?? true,
+      config: json['config'],
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'type': type.name,
+    'icon': icon,
+    'isEnabled': isEnabled,
+    'config': config,
+  };
+
+  static List<PaymentMethodConfig> get defaultMethods => [
+    PaymentMethodConfig(id: 'cash', name: 'Cash', type: PaymentMethodType.cash, icon: '💵'),
+    PaymentMethodConfig(id: 'card', name: 'Card', type: PaymentMethodType.card, icon: '💳'),
+    PaymentMethodConfig(id: 'upi', name: 'UPI', type: PaymentMethodType.upi, icon: '📱'),
+    PaymentMethodConfig(id: 'gpay', name: 'Google Pay', type: PaymentMethodType.upi, icon: '📱'),
+    PaymentMethodConfig(id: 'paytm', name: 'Paytm', type: PaymentMethodType.wallet, icon: '💰'),
+    PaymentMethodConfig(id: 'phonepe', name: 'PhonePe', type: PaymentMethodType.upi, icon: '📲'),
+    PaymentMethodConfig(id: 'netbanking', name: 'Net Banking', type: PaymentMethodType.netBanking, icon: '🏦'),
+  ];
+}
+
+class PaymentSystemConfig {
+  final Set<PaymentMethodType> enabledMethods;
+  final List<double> quickAmounts;
+  final List<PaymentMethodConfig> availableMethods;
+
+  PaymentSystemConfig({
+    Set<PaymentMethodType>? enabledMethods,
+    List<double>? quickAmounts,
+    List<PaymentMethodConfig>? availableMethods,
+  }) : enabledMethods = enabledMethods ?? {PaymentMethodType.cash, PaymentMethodType.card, PaymentMethodType.upi},
+       quickAmounts = quickAmounts ?? [50, 100, 200, 500, 1000],
+       availableMethods = availableMethods ?? PaymentMethodConfig.defaultMethods;
+
+  PaymentSystemConfig copyWith({
+    Set<PaymentMethodType>? enabledMethods,
+    List<double>? quickAmounts,
+    List<PaymentMethodConfig>? availableMethods,
+  }) {
+    return PaymentSystemConfig(
+      enabledMethods: enabledMethods ?? this.enabledMethods,
+      quickAmounts: quickAmounts ?? this.quickAmounts,
+      availableMethods: availableMethods ?? this.availableMethods,
+    );
+  }
+
+  factory PaymentSystemConfig.fromJson(Map<String, dynamic> json) {
+    return PaymentSystemConfig(
+      enabledMethods: (json['enabledMethods'] as List?)
+          ?.map((e) => PaymentMethodType.values.firstWhere((type) => type.name == e))
+          .toSet(),
+      quickAmounts: (json['quickAmounts'] as List?)?.cast<double>(),
+      availableMethods: (json['availableMethods'] as List?)
+          ?.map((e) => PaymentMethodConfig.fromJson(e))
+          .toList(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'enabledMethods': enabledMethods.map((e) => e.name).toList(),
+    'quickAmounts': quickAmounts,
+    'availableMethods': availableMethods.map((e) => e.toJson()).toList(),
+  };
+}
+
+class PaymentEntry {
+  final String methodId;
+  final String methodName;
+  final PaymentMethodType method;
+  final double amount;
+  final DateTime timestamp;
+  final String? orderId;
+  final String? transactionId;
+
+  PaymentEntry({
+    required this.methodId,
+    required this.methodName,
+    required this.method,
+    required this.amount,
+    required this.timestamp,
+    this.orderId,
+    this.transactionId,
+  });
+
+  PaymentEntry copyWith({
+    String? methodId,
+    String? methodName,
+    PaymentMethodType? method,
+    double? amount,
+    DateTime? timestamp,
+    String? orderId,
+    String? transactionId,
+  }) {
+    return PaymentEntry(
+      methodId: methodId ?? this.methodId,
+      methodName: methodName ?? this.methodName,
+      method: method ?? this.method,
+      amount: amount ?? this.amount,
+      timestamp: timestamp ?? this.timestamp,
+      orderId: orderId ?? this.orderId,
+      transactionId: transactionId ?? this.transactionId,
+    );
+  }
+
+  factory PaymentEntry.fromJson(Map<String, dynamic> json) => PaymentEntry(
+    methodId: json['methodId'],
+    methodName: json['methodName'],
+    method: PaymentMethodType.values.firstWhere((e) => e.name == json['method']),
+    amount: json['amount'].toDouble(),
+    timestamp: DateTime.parse(json['timestamp']),
+    orderId: json['orderId'],
+    transactionId: json['transactionId'],
+  );
+
+  Map<String, dynamic> toJson() => {
+    'methodId': methodId,
+    'methodName': methodName,
+    'method': method.name,
+    'amount': amount,
+    'timestamp': timestamp.toIso8601String(),
+    'orderId': orderId,
+    'transactionId': transactionId,
+  };
+}
+
+class OrderPayment {
+  final String orderId;
+  final List<PaymentEntry> payments;
+  final double totalAmount;
+  final DateTime paidAt;
+  final bool isFullyPaid;
+
+  OrderPayment({
+    required this.orderId,
+    required this.payments,
+    required this.totalAmount,
+    required this.paidAt,
+  }) : isFullyPaid = payments.fold(0.0, (sum, p) => sum + p.amount) >= totalAmount;
+
+  double get paidAmount => payments.fold(0.0, (sum, p) => sum + p.amount);
+  double get remainingAmount => totalAmount - paidAmount;
+
+  factory OrderPayment.fromJson(Map<String, dynamic> json) => OrderPayment(
+    orderId: json['orderId'],
+    payments: (json['payments'] as List).map((p) => PaymentEntry.fromJson(p)).toList(),
+    totalAmount: json['totalAmount'].toDouble(),
+    paidAt: DateTime.parse(json['paidAt']),
+  );
+
+  Map<String, dynamic> toJson() => {
+    'orderId': orderId,
+    'payments': payments.map((p) => p.toJson()).toList(),
+    'totalAmount': totalAmount,
+    'paidAt': paidAt.toIso8601String(),
+  };
+}
+
 // Discount Types and Models
 enum DiscountType { percentage, fixed }
 
@@ -1594,6 +2007,112 @@ final customerDataProvider = StateNotifierProvider<CustomerDataNotifier, Map<Str
   return CustomerDataNotifier();
 });
 
+// Payment Configuration Providers
+final paymentConfigProvider = StateNotifierProvider<PaymentConfigNotifier, PaymentSystemConfig>((ref) {
+  return PaymentConfigNotifier();
+});
+
+final paymentHistoryProvider = StateNotifierProvider<PaymentHistoryNotifier, List<PaymentEntry>>((ref) {
+  return PaymentHistoryNotifier();
+});
+
+// Printer management providers
+class PrinterNotifier extends StateNotifier<List<PrinterDevice>> {
+  PrinterNotifier() : super([]);
+
+  void addPrinter(PrinterDevice printer) {
+    state = [...state, printer];
+  }
+
+  void updatePrinter(String id, PrinterDevice updatedPrinter) {
+    state = [
+      for (final printer in state)
+        if (printer.id == id) updatedPrinter else printer
+    ];
+  }
+
+  void removePrinter(String id) {
+    state = state.where((printer) => printer.id != id).toList();
+  }
+
+  void updatePrinterStatus(String id, PrinterStatus status) {
+    state = [
+      for (final printer in state)
+        if (printer.id == id) printer.copyWith(status: status) else printer
+    ];
+  }
+
+  PrinterDevice? getDefaultPrinter() {
+    try {
+      return state.firstWhere((printer) => printer.isDefault);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  void setDefaultPrinter(String id) {
+    state = [
+      for (final printer in state)
+        printer.copyWith(isDefault: printer.id == id)
+    ];
+  }
+
+  List<PrinterDevice> getConnectedPrinters() {
+    return state
+        .where((printer) => printer.status == PrinterStatus.connected)
+        .toList();
+  }
+
+  Future<void> testPrint(String printerId) async {
+    updatePrinterStatus(printerId, PrinterStatus.printing);
+    
+    try {
+      // Simulate printing test page
+      await Future.delayed(const Duration(seconds: 2));
+      
+      // Simulate success/failure based on printer status
+      final printer = state.firstWhere((p) => p.id == printerId);
+      if (printer.status != PrinterStatus.error) {
+        updatePrinterStatus(printerId, PrinterStatus.connected);
+      }
+    } catch (e) {
+      updatePrinterStatus(printerId, PrinterStatus.error);
+    }
+  }
+
+  Future<void> connectPrinter(String printerId) async {
+    updatePrinterStatus(printerId, PrinterStatus.connecting);
+    
+    try {
+      // Simulate connection process
+      await Future.delayed(const Duration(seconds: 3));
+      updatePrinterStatus(printerId, PrinterStatus.connected);
+    } catch (e) {
+      updatePrinterStatus(printerId, PrinterStatus.error);
+    }
+  }
+
+  Future<void> disconnectPrinter(String printerId) async {
+    updatePrinterStatus(printerId, PrinterStatus.disconnected);
+  }
+}
+
+final printerProvider = StateNotifierProvider<PrinterNotifier, List<PrinterDevice>>((ref) {
+  return PrinterNotifier();
+});
+
+final defaultPrinterProvider = Provider<PrinterDevice?>((ref) {
+  return ref.watch(printerProvider.notifier).getDefaultPrinter();
+});
+
+final connectedPrintersProvider = Provider<List<PrinterDevice>>((ref) {
+  return ref.watch(printerProvider.notifier).getConnectedPrinters();
+});
+
+final enabledPaymentMethodsProvider = Provider<List<PaymentMethodConfig>>((ref) {
+  return ref.watch(paymentConfigProvider.notifier).enabledMethodConfigs;
+});
+
 final orderTypeProvider = StateProvider<OrderType>((ref) => OrderType.dineIn);
 
 // Current order discount provider
@@ -1874,6 +2393,1237 @@ class CustomerDataNotifier extends StateNotifier<Map<String, CustomerData>> {
   double get totalCustomerValue => state.values.fold(0.0, (sum, customer) => sum + customer.totalSpent);
   
   double get averageCustomerValue => totalCustomers > 0 ? totalCustomerValue / totalCustomers : 0.0;
+}
+
+class PaymentConfigNotifier extends StateNotifier<PaymentSystemConfig> {
+  PaymentConfigNotifier() : super(PaymentSystemConfig()) {
+    _loadConfig();
+  }
+
+  Future<void> _loadConfig() async {
+    final prefs = await SharedPreferences.getInstance();
+    final configJson = prefs.getString('payment_system_config');
+    if (configJson != null) {
+      try {
+        final Map<String, dynamic> configMap = jsonDecode(configJson);
+        state = PaymentSystemConfig.fromJson(configMap);
+      } catch (e) {
+        print('Error loading payment config: $e');
+      }
+    }
+  }
+
+  Future<void> _saveConfig() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('payment_system_config', jsonEncode(state.toJson()));
+  }
+
+  Future<void> enablePaymentMethod(PaymentMethodType method) async {
+    state = state.copyWith(
+      enabledMethods: {...state.enabledMethods, method},
+    );
+    await _saveConfig();
+  }
+
+  Future<void> disablePaymentMethod(PaymentMethodType method) async {
+    final updatedMethods = Set<PaymentMethodType>.from(state.enabledMethods);
+    updatedMethods.remove(method);
+    state = state.copyWith(enabledMethods: updatedMethods);
+    await _saveConfig();
+  }
+
+  Future<void> updateQuickAmounts(List<double> amounts) async {
+    state = state.copyWith(quickAmounts: amounts);
+    await _saveConfig();
+  }
+
+  bool isMethodEnabled(PaymentMethodType method) {
+    return state.enabledMethods.contains(method);
+  }
+
+  List<PaymentMethodConfig> get enabledMethodConfigs {
+    return state.availableMethods
+        .where((method) => state.enabledMethods.contains(method.type))
+        .toList();
+  }
+}
+
+class PaymentHistoryNotifier extends StateNotifier<List<PaymentEntry>> {
+  PaymentHistoryNotifier() : super([]) {
+    _loadHistory();
+  }
+
+  Future<void> _loadHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final historyJson = prefs.getString('payment_history');
+    if (historyJson != null) {
+      try {
+        final List<dynamic> historyList = jsonDecode(historyJson);
+        state = historyList.map((json) => PaymentEntry.fromJson(json)).toList();
+      } catch (e) {
+        print('Error loading payment history: $e');
+      }
+    }
+  }
+
+  Future<void> _saveHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final historyJson = jsonEncode(state.map((entry) => entry.toJson()).toList());
+    await prefs.setString('payment_history', historyJson);
+  }
+
+  Future<void> addPaymentEntry(PaymentEntry entry) async {
+    state = [entry, ...state];
+    await _saveHistory();
+  }
+
+  Future<void> addPaymentsForOrder(String orderId, List<PaymentEntry> payments) async {
+    final newEntries = payments.map((p) => p.copyWith(orderId: orderId)).toList();
+    state = [...newEntries, ...state];
+    await _saveHistory();
+  }
+
+  List<PaymentEntry> getPaymentsForOrder(String orderId) {
+    return state.where((entry) => entry.orderId == orderId).toList();
+  }
+
+  double getTotalPaidForOrder(String orderId) {
+    return getPaymentsForOrder(orderId)
+        .fold(0.0, (sum, payment) => sum + payment.amount);
+  }
+
+  Map<PaymentMethodType, double> getPaymentMethodTotals(DateTime? startDate, DateTime? endDate) {
+    final filteredPayments = state.where((payment) {
+      if (startDate != null && payment.timestamp.isBefore(startDate)) return false;
+      if (endDate != null && payment.timestamp.isAfter(endDate)) return false;
+      return true;
+    });
+
+    final Map<PaymentMethodType, double> totals = {};
+    for (final payment in filteredPayments) {
+      totals[payment.method] = (totals[payment.method] ?? 0.0) + payment.amount;
+    }
+    return totals;
+  }
+
+  double getTotalPayments(DateTime? startDate, DateTime? endDate) {
+    return getPaymentMethodTotals(startDate, endDate).values.fold(0.0, (sum, amount) => sum + amount);
+  }
+}
+
+// Payment Method Selector Dialog
+class PaymentMethodSelector extends ConsumerStatefulWidget {
+  final double totalAmount;
+  final String orderId;
+  final Function(List<PaymentEntry>) onPaymentComplete;
+
+  const PaymentMethodSelector({
+    super.key,
+    required this.totalAmount,
+    required this.orderId,
+    required this.onPaymentComplete,
+  });
+
+  @override
+  ConsumerState<PaymentMethodSelector> createState() => _PaymentMethodSelectorState();
+}
+
+class _PaymentMethodSelectorState extends ConsumerState<PaymentMethodSelector> {
+  final List<PaymentEntry> _payments = [];
+  final Map<String, TextEditingController> _controllers = {};
+
+  @override
+  void dispose() {
+    for (final controller in _controllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  double get _totalPaid => _payments.fold(0.0, (sum, payment) => sum + payment.amount);
+  double get _remainingAmount => widget.totalAmount - _totalPaid;
+  bool get _isFullyPaid => _remainingAmount <= 0.01; // Allow for small rounding differences
+
+  @override
+  Widget build(BuildContext context) {
+    final paymentConfig = ref.watch(paymentConfigProvider);
+    final enabledMethods = ref.watch(paymentConfigProvider.notifier).enabledMethodConfigs;
+
+    return AlertDialog(
+      title: Row(
+        children: [
+          const Icon(Icons.payment, color: Color(0xFFFF9933)),
+          const SizedBox(width: 8),
+          const Text('Payment Methods'),
+        ],
+      ),
+      content: Container(
+        width: 450,
+        constraints: const BoxConstraints(maxHeight: 600),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Payment Summary
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Total Amount:', style: TextStyle(fontWeight: FontWeight.bold)),
+                      Text(formatIndianCurrency('₹', widget.totalAmount), 
+                           style: const TextStyle(fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Paid Amount:'),
+                      Text(formatIndianCurrency('₹', _totalPaid), 
+                           style: TextStyle(color: _totalPaid > 0 ? Colors.green : Colors.grey)),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Remaining:', style: TextStyle(fontWeight: FontWeight.bold)),
+                      Text(formatIndianCurrency('₹', _remainingAmount), 
+                           style: TextStyle(
+                             color: _isFullyPaid ? Colors.green : Colors.red,
+                             fontWeight: FontWeight.bold,
+                           )),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Quick Amount Buttons
+            if (paymentConfig.quickAmounts.isNotEmpty) ...[
+              const Text('Quick Amounts:', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: paymentConfig.quickAmounts.map((amount) => 
+                  ActionChip(
+                    label: Text('₹${amount.toInt()}'),
+                    onPressed: _remainingAmount > 0 ? () => _addQuickAmount(amount) : null,
+                  ),
+                ).toList(),
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            // Payment Methods
+            const Text('Payment Methods:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Expanded(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: enabledMethods.length,
+                itemBuilder: (context, index) {
+                  final method = enabledMethods[index];
+                  return _buildPaymentMethodTile(method);
+                },
+              ),
+            ),
+
+            // Added Payments List
+            if (_payments.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              const Text('Added Payments:', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Container(
+                constraints: const BoxConstraints(maxHeight: 150),
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: _payments.length,
+                  itemBuilder: (context, index) {
+                    final payment = _payments[index];
+                    return ListTile(
+                      leading: Text(payment.methodName.substring(0, 1)),
+                      title: Text(payment.methodName),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('₹${payment.amount.toStringAsFixed(2)}'),
+                          IconButton(
+                            icon: const Icon(Icons.delete, size: 20),
+                            onPressed: () => _removePayment(index),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: _isFullyPaid ? () {
+            widget.onPaymentComplete(_payments);
+            Navigator.pop(context);
+          } : null,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFFFF9933),
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('Complete Payment'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPaymentMethodTile(PaymentMethodConfig method) {
+    final controller = _controllers.putIfAbsent(method.id, () => TextEditingController());
+    
+    return Card(
+      child: ListTile(
+        leading: CircleAvatar(
+          child: Text(method.icon ?? method.name.substring(0, 1)),
+        ),
+        title: Text(method.name),
+        subtitle: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            hintText: 'Enter amount',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          keyboardType: TextInputType.number,
+        ),
+        trailing: ElevatedButton(
+          onPressed: () => _addPayment(method, controller),
+          child: const Text('Add'),
+        ),
+      ),
+    );
+  }
+
+  void _addQuickAmount(double amount) {
+    if (_remainingAmount <= 0) return;
+    
+    final actualAmount = amount > _remainingAmount ? _remainingAmount : amount;
+    
+    // Add to cash payment by default
+    final cashMethod = ref.read(paymentConfigProvider.notifier).enabledMethodConfigs
+        .firstWhere((m) => m.type == PaymentMethodType.cash, 
+                   orElse: () => ref.read(paymentConfigProvider.notifier).enabledMethodConfigs.first);
+    
+    final payment = PaymentEntry(
+      methodId: cashMethod.id,
+      methodName: cashMethod.name,
+      method: cashMethod.type,
+      amount: actualAmount,
+      timestamp: DateTime.now(),
+      orderId: widget.orderId,
+    );
+
+    setState(() {
+      _payments.add(payment);
+    });
+  }
+
+  void _addPayment(PaymentMethodConfig method, TextEditingController controller) {
+    final amount = double.tryParse(controller.text);
+    if (amount == null || amount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid amount')),
+      );
+      return;
+    }
+
+    if (amount > _remainingAmount) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Amount cannot exceed remaining balance of ₹${_remainingAmount.toStringAsFixed(2)}')),
+      );
+      return;
+    }
+
+    final payment = PaymentEntry(
+      methodId: method.id,
+      methodName: method.name,
+      method: method.type,
+      amount: amount,
+      timestamp: DateTime.now(),
+      orderId: widget.orderId,
+    );
+
+    setState(() {
+      _payments.add(payment);
+      controller.clear();
+    });
+  }
+
+  void _removePayment(int index) {
+    setState(() {
+      _payments.removeAt(index);
+    });
+  }
+}
+
+// New Mobile-Optimized Payment Dialog for Order Completion
+class OrderCompletionPaymentDialog extends ConsumerStatefulWidget {
+  final Order order;
+  final Function(List<PaymentEntry>) onPaymentComplete;
+
+  const OrderCompletionPaymentDialog({
+    super.key,
+    required this.order,
+    required this.onPaymentComplete,
+  });
+
+  @override
+  ConsumerState<OrderCompletionPaymentDialog> createState() => _OrderCompletionPaymentDialogState();
+}
+
+class _OrderCompletionPaymentDialogState extends ConsumerState<OrderCompletionPaymentDialog> {
+  final List<PaymentEntry> _payments = [];
+  final Map<String, TextEditingController> _controllers = {};
+  String? _selectedMethodId;
+  PaymentMethodConfig? get _selectedMethod => _selectedMethodId != null 
+      ? ref.read(paymentConfigProvider.notifier).enabledMethodConfigs
+          .firstWhere((m) => m.id == _selectedMethodId, orElse: () => ref.read(paymentConfigProvider.notifier).enabledMethodConfigs.first)
+      : null;
+
+  @override
+  void initState() {
+    super.initState();
+    // Auto-select first available payment method
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final enabledMethods = ref.read(paymentConfigProvider.notifier).enabledMethodConfigs;
+      if (enabledMethods.isNotEmpty) {
+        setState(() {
+          _selectedMethodId = enabledMethods.first.id;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    for (final controller in _controllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  double get _totalPaid => _payments.fold(0.0, (sum, payment) => sum + payment.amount);
+  double get _remainingAmount => widget.order.grandTotal - _totalPaid;
+  bool get _isFullyPaid => _remainingAmount <= 0.01; // Allow for small rounding differences
+
+  @override
+  Widget build(BuildContext context) {
+    final enabledMethods = ref.watch(paymentConfigProvider.notifier).enabledMethodConfigs;
+    final isSmallScreen = MediaQuery.of(context).size.width < 600;
+
+    // Handle case where no payment methods are enabled
+    if (enabledMethods.isEmpty) {
+      return AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.error, color: Colors.red),
+            SizedBox(width: 8),
+            Text('Configuration Error'),
+          ],
+        ),
+        content: const Text(
+          'No payment methods are currently enabled. Please configure payment methods in settings first.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      );
+    }
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: isSmallScreen ? MediaQuery.of(context).size.width * 0.95 : 500,
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.9,
+        ),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFF9933).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.payment,
+                    color: Color(0xFFFF9933),
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Collect Payment',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        'Order #${widget.order.id}',
+                        style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            
+            const SizedBox(height: 20),
+            
+            // Payment Summary Card
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [const Color(0xFFFF9933).withOpacity(0.1), Colors.white],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFFF9933).withOpacity(0.3)),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Total Amount:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+                      Text(
+                        formatIndianCurrency('₹', widget.order.grandTotal),
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFFFF9933)),
+                      ),
+                    ],
+                  ),
+                  if (_totalPaid > 0) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Paid Amount:', style: TextStyle(fontSize: 14)),
+                        Text(
+                          formatIndianCurrency('₹', _totalPaid),
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.green),
+                        ),
+                      ],
+                    ),
+                  ],
+                  if (_remainingAmount > 0.01) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Remaining:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+                        Text(
+                          formatIndianCurrency('₹', _remainingAmount),
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.red),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // Payment Method Selection (Mobile Optimized)
+            if (!_isFullyPaid) ...[
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Select Payment Method:',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.grey[700]),
+                ),
+              ),
+              const SizedBox(height: 12),
+              
+              // Payment method tabs/buttons for mobile
+              SizedBox(
+                height: 50,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: enabledMethods.length,
+                  itemBuilder: (context, index) {
+                    final method = enabledMethods[index];
+                    final isSelected = _selectedMethodId == method.id;
+                    
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: GestureDetector(
+                        onTap: () => setState(() => _selectedMethodId = method.id),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: isSelected ? const Color(0xFFFF9933) : Colors.grey[100],
+                            borderRadius: BorderRadius.circular(25),
+                            border: Border.all(
+                              color: isSelected ? const Color(0xFFFF9933) : Colors.grey[300]!,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (method.icon != null)
+                                Text(method.icon!, style: const TextStyle(fontSize: 16))
+                              else
+                                CircleAvatar(
+                                  radius: 10,
+                                  backgroundColor: isSelected ? Colors.white : Colors.grey[400],
+                                  child: Text(
+                                    method.name.substring(0, 1),
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: isSelected ? const Color(0xFFFF9933) : Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              const SizedBox(width: 8),
+                              Text(
+                                method.name,
+                                style: TextStyle(
+                                  color: isSelected ? Colors.white : Colors.grey[700],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              // Amount Input Section
+              if (_selectedMethod != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[50],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey[200]!),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Enter ${_selectedMethod!.name} Amount:',
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                      ),
+                      const SizedBox(height: 12),
+                      
+                      // Amount input field
+                      TextField(
+                        controller: _controllers.putIfAbsent(_selectedMethod!.id, () => TextEditingController()),
+                        decoration: InputDecoration(
+                          hintText: 'Enter amount (Max: ₹${_remainingAmount.toStringAsFixed(2)})',
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
+                          ),
+                          prefixText: '₹ ',
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        ),
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        onChanged: (value) => setState(() {}),
+                      ),
+                      
+                      const SizedBox(height: 12),
+                      
+                      // Quick amount buttons
+                      Row(
+                        children: [
+                          _buildQuickAmountButton('Full', _remainingAmount),
+                          const SizedBox(width: 8),
+                          _buildQuickAmountButton('₹500', 500),
+                          const SizedBox(width: 8),
+                          _buildQuickAmountButton('₹100', 100),
+                        ],
+                      ),
+                      
+                      const SizedBox(height: 16),
+                      
+                      // Payment action buttons
+                      if (_isFullAmountEntered()) ...[
+                        // Full amount entered - show complete payment button
+                        SizedBox(
+                          width: double.infinity,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(colors: [Colors.green, Colors.lightGreen]),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: ElevatedButton(
+                              onPressed: () => _completePaymentDirectly(),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.transparent,
+                                shadowColor: Colors.transparent,
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Complete with ${_selectedMethod!.name}',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        // Alternative: Add to multiple payments
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton(
+                            onPressed: _canAddPayment() ? () => _addPayment(_selectedMethod!) : null,
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Color(0xFFFF9933)),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            child: Text(
+                              'Add to Multiple Payments',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                                color: _canAddPayment() ? const Color(0xFFFF9933) : Colors.grey,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ] else ...[
+                        // Partial amount or no amount - show regular add payment button
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: _canAddPayment() ? () => _addPayment(_selectedMethod!) : null,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFFF9933),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            child: const Text('Add Payment', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ],
+
+            // Added Payments List
+            if (_payments.isNotEmpty) ...[
+              const SizedBox(height: 20),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Added Payments:',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.grey[700]),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                constraints: const BoxConstraints(maxHeight: 120),
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: _payments.length,
+                  itemBuilder: (context, index) {
+                    final payment = _payments[index];
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: const Color(0xFFFF9933),
+                          child: Text(
+                            payment.methodName.substring(0, 1),
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        title: Text(payment.methodName, style: const TextStyle(fontWeight: FontWeight.w500)),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              '₹${payment.amount.toStringAsFixed(2)}',
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline, size: 20, color: Colors.red),
+                              onPressed: () => _removePayment(index),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+
+            const Spacer(),
+
+            // Action buttons
+            Padding(
+              padding: const EdgeInsets.only(top: 20),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.grey),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      child: const Text('Cancel', style: TextStyle(fontSize: 16)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: _isFullyPaid
+                            ? const LinearGradient(colors: [Colors.green, Colors.lightGreen])
+                            : const LinearGradient(colors: [Colors.grey, Colors.grey]),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: ElevatedButton(
+                        onPressed: _isFullyPaid ? () {
+                          widget.onPaymentComplete(_payments);
+                          Navigator.pop(context);
+                        } : null,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.transparent,
+                          shadowColor: Colors.transparent,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              _isFullyPaid ? Icons.check_circle : Icons.lock,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              _isFullyPaid ? 'Complete Order' : 'Collect Full Payment',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuickAmountButton(String label, double amount) {
+    final isFullButton = label == 'Full';
+    final isEnabled = _remainingAmount >= amount;
+    final controller = _selectedMethod != null ? _controllers[_selectedMethod!.id] : null;
+    final enteredAmount = controller != null ? double.tryParse(controller.text) : null;
+    final isCurrentlySelected = enteredAmount != null && (enteredAmount - amount).abs() <= 0.01;
+    
+    return Expanded(
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: isFullButton && isCurrentlySelected
+              ? const LinearGradient(colors: [Colors.green, Colors.lightGreen])
+              : null,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: OutlinedButton(
+          onPressed: isEnabled ? () => _fillAmount(amount) : null,
+          style: OutlinedButton.styleFrom(
+            side: BorderSide(
+              color: isCurrentlySelected 
+                  ? Colors.transparent 
+                  : const Color(0xFFFF9933).withOpacity(isEnabled ? 0.5 : 0.3),
+            ),
+            backgroundColor: isCurrentlySelected && !isFullButton 
+                ? const Color(0xFFFF9933).withOpacity(0.1) 
+                : Colors.transparent,
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: isCurrentlySelected ? FontWeight.bold : FontWeight.normal,
+              color: isFullButton && isCurrentlySelected
+                  ? Colors.white
+                  : isEnabled 
+                      ? (isCurrentlySelected ? const Color(0xFFFF9933) : const Color(0xFFFF9933))
+                      : Colors.grey,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _fillAmount(double amount) {
+    if (_selectedMethod != null) {
+      final actualAmount = amount > _remainingAmount ? _remainingAmount : amount;
+      _controllers[_selectedMethod!.id]?.text = actualAmount.toStringAsFixed(2);
+      setState(() {});
+    }
+  }
+
+  bool _canAddPayment() {
+    if (_selectedMethod == null) return false;
+    final controller = _controllers[_selectedMethod!.id];
+    if (controller == null || controller.text.isEmpty) return false;
+    final amount = double.tryParse(controller.text);
+    return amount != null && amount > 0 && amount <= _remainingAmount;
+  }
+
+  bool _isFullAmountEntered() {
+    if (_selectedMethod == null) return false;
+    final controller = _controllers[_selectedMethod!.id];
+    if (controller == null || controller.text.isEmpty) return false;
+    final amount = double.tryParse(controller.text);
+    if (amount == null) return false;
+    // Check if entered amount equals remaining amount (within small tolerance)
+    return (amount - _remainingAmount).abs() <= 0.01;
+  }
+
+  void _completePaymentDirectly() {
+    if (_selectedMethod == null) return;
+    
+    final controller = _controllers[_selectedMethod!.id];
+    final amount = double.tryParse(controller?.text ?? '');
+    
+    if (amount == null || amount <= 0) {
+      _showSnackBar('Please enter a valid amount');
+      return;
+    }
+
+    // Validate that payment method is still enabled
+    final enabledMethods = ref.read(paymentConfigProvider.notifier).enabledMethodConfigs;
+    if (!enabledMethods.any((m) => m.id == _selectedMethod!.id)) {
+      _showSnackBar('This payment method is no longer enabled');
+      return;
+    }
+
+    // Create payment entry for the full amount
+    final payment = PaymentEntry(
+      methodId: _selectedMethod!.id,
+      methodName: _selectedMethod!.name,
+      method: _selectedMethod!.type,
+      amount: amount,
+      timestamp: DateTime.now(),
+      orderId: widget.order.id,
+    );
+
+    // Add this payment to the list
+    final allPayments = [..._payments, payment];
+    
+    // Complete the order immediately
+    widget.onPaymentComplete(allPayments);
+    Navigator.pop(context);
+    
+    _showSnackBar('Payment completed successfully with ${_selectedMethod!.name}!');
+  }
+
+  void _addPayment(PaymentMethodConfig method) {
+    final controller = _controllers[method.id];
+    final amount = double.tryParse(controller?.text ?? '');
+    
+    if (amount == null || amount <= 0) {
+      _showSnackBar('Please enter a valid amount');
+      return;
+    }
+
+    if (amount > _remainingAmount) {
+      _showSnackBar('Amount cannot exceed remaining balance of ₹${_remainingAmount.toStringAsFixed(2)}');
+      return;
+    }
+
+    // Validate that payment method is still enabled
+    final enabledMethods = ref.read(paymentConfigProvider.notifier).enabledMethodConfigs;
+    if (!enabledMethods.any((m) => m.id == method.id)) {
+      _showSnackBar('This payment method is no longer enabled');
+      return;
+    }
+
+    final payment = PaymentEntry(
+      methodId: method.id,
+      methodName: method.name,
+      method: method.type,
+      amount: amount,
+      timestamp: DateTime.now(),
+      orderId: widget.order.id,
+    );
+
+    setState(() {
+      _payments.add(payment);
+      controller?.clear();
+    });
+
+    _showSnackBar('Payment of ₹${amount.toStringAsFixed(2)} added successfully');
+  }
+
+  void _removePayment(int index) {
+    setState(() {
+      _payments.removeAt(index);
+    });
+    _showSnackBar('Payment removed');
+  }
+
+  void _showSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+}
+
+// Payment Settings Screen
+class PaymentSettingsScreen extends ConsumerStatefulWidget {
+  const PaymentSettingsScreen({super.key});
+
+  @override
+  ConsumerState<PaymentSettingsScreen> createState() => _PaymentSettingsScreenState();
+}
+
+class _PaymentSettingsScreenState extends ConsumerState<PaymentSettingsScreen> {
+  final _quickAmountController = TextEditingController();
+
+  @override
+  void dispose() {
+    _quickAmountController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final paymentConfig = ref.watch(paymentConfigProvider);
+    final paymentNotifier = ref.read(paymentConfigProvider.notifier);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Payment Settings'),
+        backgroundColor: const Color(0xFFFF9933),
+        foregroundColor: Colors.white,
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Payment Methods Section
+            const Text(
+              'Payment Methods',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Enable or disable payment methods for your restaurant',
+              style: TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 16),
+
+            Expanded(
+              child: ListView.builder(
+                itemCount: paymentConfig.availableMethods.length,
+                itemBuilder: (context, index) {
+                  final method = paymentConfig.availableMethods[index];
+                  final isEnabled = paymentConfig.enabledMethods.contains(method.type);
+
+                  return Card(
+                    child: SwitchListTile(
+                      secondary: CircleAvatar(
+                        child: Text(method.icon ?? method.name.substring(0, 1)),
+                      ),
+                      title: Text(method.name),
+                      subtitle: Text(_getPaymentMethodDescription(method.type)),
+                      value: isEnabled,
+                      onChanged: (value) {
+                        if (value) {
+                          paymentNotifier.enablePaymentMethod(method.type);
+                        } else {
+                          // Ensure at least one payment method remains enabled
+                          if (paymentConfig.enabledMethods.length > 1) {
+                            paymentNotifier.disablePaymentMethod(method.type);
+                          } else {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('At least one payment method must be enabled'),
+                                backgroundColor: Colors.orange,
+                              ),
+                            );
+                          }
+                        }
+                      },
+                    ),
+                  );
+                },
+              ),
+            ),
+
+            // Quick Amounts Section
+            const SizedBox(height: 16),
+            const Text(
+              'Quick Amount Buttons',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                ...paymentConfig.quickAmounts.map((amount) => 
+                  InputChip(
+                    label: Text('₹${amount.toInt()}'),
+                    onDeleted: () => _removeQuickAmount(amount),
+                  ),
+                ),
+                ActionChip(
+                  label: const Text('+ Add'),
+                  onPressed: () => _showAddQuickAmountDialog(),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _getPaymentMethodDescription(PaymentMethodType type) {
+    switch (type) {
+      case PaymentMethodType.cash:
+        return 'Physical cash payments';
+      case PaymentMethodType.card:
+        return 'Credit/Debit card payments';
+      case PaymentMethodType.upi:
+        return 'UPI payments (GPay, PhonePe, etc.)';
+      case PaymentMethodType.netBanking:
+        return 'Online banking transfers';
+      case PaymentMethodType.wallet:
+        return 'Digital wallet payments';
+      case PaymentMethodType.giftCard:
+        return 'Gift card and voucher payments';
+    }
+  }
+
+  void _removeQuickAmount(double amount) {
+    final paymentNotifier = ref.read(paymentConfigProvider.notifier);
+    final currentAmounts = List<double>.from(ref.read(paymentConfigProvider).quickAmounts);
+    currentAmounts.remove(amount);
+    paymentNotifier.updateQuickAmounts(currentAmounts);
+  }
+
+  void _showAddQuickAmountDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add Quick Amount'),
+        content: TextField(
+          controller: _quickAmountController,
+          decoration: const InputDecoration(
+            labelText: 'Amount',
+            prefixText: '₹',
+            border: OutlineInputBorder(),
+          ),
+          keyboardType: TextInputType.number,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              _quickAmountController.clear();
+              Navigator.pop(context);
+            },
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final amount = double.tryParse(_quickAmountController.text);
+              if (amount != null && amount > 0) {
+                final paymentNotifier = ref.read(paymentConfigProvider.notifier);
+                final currentAmounts = List<double>.from(ref.read(paymentConfigProvider).quickAmounts);
+                if (!currentAmounts.contains(amount)) {
+                  currentAmounts.add(amount);
+                  currentAmounts.sort();
+                  paymentNotifier.updateQuickAmounts(currentAmounts);
+                }
+                _quickAmountController.clear();
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // Main Navigation Screen
@@ -3511,13 +5261,20 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
       kotPrinted: settings.kotEnabled,
       orderDiscount: orderDiscount,
     );
+
+    // Skip payment collection and directly add order
+    // Order will be created without payment and moved to preparing status
+    final orderWithoutPayment = newOrder.copyWith(
+      status: OrderStatus.preparing, // Skip payment and go directly to preparing
+      paymentStatus: PaymentStatus.pending, // Payment pending until completion
+    );
     
     // Add order to the orders provider
-    ref.read(ordersProvider.notifier).addOrder(newOrder);
+    ref.read(ordersProvider.notifier).addOrder(orderWithoutPayment);
     
     // Update customer analytics data if customer info is provided
     if (customerInfo != null) {
-      ref.read(customerDataProvider.notifier).addOrUpdateCustomerFromOrder(newOrder);
+      ref.read(customerDataProvider.notifier).addOrUpdateCustomerFromOrder(orderWithoutPayment);
     }
     
     // Clear current order and form
@@ -3531,25 +5288,98 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     
     // Reset charges and discount
     setState(() {
-      _deliveryCharge = settings.defaultDeliveryCharge;
-      _packagingCharge = settings.defaultPackagingCharge;
+      _deliveryCharge = ref.read(settingsProvider).defaultDeliveryCharge;
+      _packagingCharge = ref.read(settingsProvider).defaultPackagingCharge;
+      _serviceCharge = 0.0;
+    });
+
+    // Show success message
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Order placed successfully! Payment will be collected before completion.'),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  void _completeOrderWithPayments(Order order, List<PaymentEntry> payments, CustomerInfo? customerInfo) {
+    // Convert PaymentEntry to Payment objects
+    final orderPayments = payments.map((entry) => Payment(
+      method: _convertPaymentMethodType(entry.method),
+      amount: entry.amount,
+      timestamp: entry.timestamp,
+    )).toList();
+
+    // Update order with payments
+    final completedOrder = order.copyWith(
+      payments: orderPayments,
+      paymentStatus: _getPaymentStatus(payments.fold(0.0, (sum, p) => sum + p.amount), order.grandTotal),
+      status: OrderStatus.confirmed, // Move to confirmed after payment
+    );
+    
+    // Add order to the orders provider
+    ref.read(ordersProvider.notifier).addOrder(completedOrder);
+
+    // Add payments to payment history
+    ref.read(paymentHistoryProvider.notifier).addPaymentsForOrder(order.id, payments);
+    
+    // Update customer analytics data if customer info is provided
+    if (customerInfo != null) {
+      ref.read(customerDataProvider.notifier).addOrUpdateCustomerFromOrder(completedOrder);
+    }
+    
+    // Clear current order and form
+    ref.read(currentOrderProvider.notifier).clearOrder();
+    ref.read(currentOrderDiscountProvider.notifier).state = null; // Clear order discount
+    _customerNameController.clear();
+    _customerPhoneController.clear();
+    _customerEmailController.clear();
+    _customerAddressController.clear();
+    _notesController.clear();
+    
+    // Reset charges and discount
+    setState(() {
+      _deliveryCharge = ref.read(settingsProvider).defaultDeliveryCharge;
+      _packagingCharge = ref.read(settingsProvider).defaultPackagingCharge;
       _serviceCharge = 0.0;
       _discountController.clear(); // Reset discount
     });
     
     // Print KOT if enabled
-    if (settings.kotEnabled) {
-      _printKOT(orderId, currentOrder, customerInfo);
+    if (ref.read(settingsProvider).kotEnabled) {
+      _printKOT(order.id, order.items, customerInfo);
     }
     
-    // Show success message without WhatsApp sharing
+    // Show success message
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Order #$orderId placed successfully!'),
+        content: Text('Order #${order.id} placed and payment received successfully!'),
         backgroundColor: Colors.green,
         duration: const Duration(seconds: 3),
       ),
     );
+  }
+
+  PaymentMethod _convertPaymentMethodType(PaymentMethodType type) {
+    switch (type) {
+      case PaymentMethodType.cash:
+        return PaymentMethod.cash;
+      case PaymentMethodType.card:
+        return PaymentMethod.card;
+      case PaymentMethodType.upi:
+      case PaymentMethodType.wallet:
+        return PaymentMethod.upi;
+      case PaymentMethodType.netBanking:
+      default:
+        return PaymentMethod.online;
+    }
+  }
+
+  PaymentStatus _getPaymentStatus(double paidAmount, double totalAmount) {
+    if (paidAmount <= 0) return PaymentStatus.pending;
+    if (paidAmount >= totalAmount) return PaymentStatus.completed;
+    return PaymentStatus.partial;
   }
 
   void _printKOT(String orderId, List<OrderItem> items, CustomerInfo? customer) {
@@ -4187,7 +6017,7 @@ class OrderHistoryScreen extends ConsumerWidget {
       children: [
         if (order.status == OrderStatus.pending || order.status == OrderStatus.confirmed)
           OutlinedButton(
-            onPressed: () => _updateOrderStatus(ref, order.id, OrderStatus.preparing),
+            onPressed: () => ref.read(ordersProvider.notifier).updateOrderStatus(order.id, OrderStatus.preparing),
             style: OutlinedButton.styleFrom(
               side: const BorderSide(color: Color(0xFFFF9933)),
               foregroundColor: const Color(0xFFFF9933),
@@ -4198,7 +6028,7 @@ class OrderHistoryScreen extends ConsumerWidget {
         
         if (order.status == OrderStatus.preparing)
           OutlinedButton(
-            onPressed: () => _updateOrderStatus(ref, order.id, OrderStatus.ready),
+            onPressed: () => ref.read(ordersProvider.notifier).updateOrderStatus(order.id, OrderStatus.ready),
             style: OutlinedButton.styleFrom(
               side: const BorderSide(color: Colors.green),
               foregroundColor: Colors.green,
@@ -4209,7 +6039,66 @@ class OrderHistoryScreen extends ConsumerWidget {
         
         if (order.status == OrderStatus.ready)
           ElevatedButton(
-            onPressed: () => _updateOrderStatus(ref, order.id, OrderStatus.completed),
+            onPressed: () {
+              // Check if payment is needed
+              if (order.paymentStatus != PaymentStatus.completed) {
+                // Show payment dialog
+                final enabledMethods = ref.read(paymentConfigProvider.notifier).enabledMethodConfigs;
+                
+                if (enabledMethods.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('No payment methods are enabled. Please configure payment methods first.'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (context) => OrderCompletionPaymentDialog(
+                    order: order,
+                    onPaymentComplete: (payments) {
+                      // Convert PaymentEntry to Payment objects
+                      final orderPayments = payments.map((entry) => Payment(
+                        method: entry.method == PaymentMethodType.cash ? PaymentMethod.cash :
+                               entry.method == PaymentMethodType.card ? PaymentMethod.card :
+                               entry.method == PaymentMethodType.upi ? PaymentMethod.upi : PaymentMethod.online,
+                        amount: entry.amount,
+                        timestamp: entry.timestamp,
+                      )).toList();
+
+                      // Update order with payments and complete status  
+                      final completedOrder = order.copyWith(
+                        payments: orderPayments,
+                        paymentStatus: payments.fold(0.0, (sum, p) => sum + p.amount) >= order.grandTotal - 0.01 
+                            ? PaymentStatus.completed : PaymentStatus.partial,
+                        status: OrderStatus.completed,
+                      );
+                      
+                      // Update the order in the orders provider
+                      ref.read(ordersProvider.notifier).updateOrder(completedOrder);
+
+                      // Add payments to payment history
+                      ref.read(paymentHistoryProvider.notifier).addPaymentsForOrder(order.id, payments);
+                      
+                      // Show success message
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Payment collected successfully! Order completed.'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    },
+                  ),
+                );
+              } else {
+                // Already paid, just complete the order
+                ref.read(ordersProvider.notifier).updateOrderStatus(order.id, OrderStatus.completed);
+              }
+            },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.green,
               foregroundColor: Colors.white,
@@ -4355,9 +6244,11 @@ class OrderHistoryScreen extends ConsumerWidget {
     return '${dateTime.day}/${dateTime.month}/${dateTime.year} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
   }
 
-  void _updateOrderStatus(WidgetRef ref, String orderId, OrderStatus newStatus) {
-    ref.read(ordersProvider.notifier).updateOrderStatus(orderId, newStatus);
-  }
+
+
+
+
+
 
   void _showOrderDetails(BuildContext context, Order order) {
     showDialog(
@@ -4590,7 +6481,7 @@ class OrderHistoryScreen extends ConsumerWidget {
           ),
           TextButton(
             onPressed: () {
-              _updateOrderStatus(ref, order.id, OrderStatus.cancelled);
+              ref.read(ordersProvider.notifier).updateOrderStatus(order.id, OrderStatus.cancelled);
               Navigator.pop(context);
             },
             style: TextButton.styleFrom(foregroundColor: Colors.red),
@@ -7421,6 +9312,140 @@ class SettingsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 16),
 
+            // Payment Settings Card (Collapsible)
+            Card(
+              child: ExpansionTile(
+                leading: const Icon(Icons.payment, color: Color(0xFFFF9933)),
+                title: const Text('Payment Settings', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        ListTile(
+                          leading: const Icon(Icons.credit_card, color: Color(0xFFFF9933)),
+                          title: const Text('Payment Methods'),
+                          subtitle: const Text('Configure accepted payment methods'),
+                          trailing: const Icon(Icons.arrow_forward_ios),
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => const PaymentSettingsScreen()),
+                          ),
+                        ),
+                        Consumer(
+                          builder: (context, ref, child) {
+                            final paymentConfig = ref.watch(paymentConfigProvider);
+                            final enabledCount = paymentConfig.enabledMethods.length;
+                            
+                            return ListTile(
+                              leading: const Icon(Icons.info_outline),
+                              title: const Text('Current Status'),
+                              subtitle: Text('$enabledCount payment methods enabled'),
+                              trailing: Chip(
+                                label: Text('$enabledCount active'),
+                                backgroundColor: enabledCount > 0 ? Colors.green[100] : Colors.red[100],
+                                labelStyle: TextStyle(
+                                  color: enabledCount > 0 ? Colors.green[800] : Colors.red[800],
+                                  fontSize: 12,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Printer Management Card (Collapsible)
+            Card(
+              child: ExpansionTile(
+                leading: const Icon(Icons.print, color: Color(0xFFFF9933)),
+                title: const Text('Printer Management', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        ListTile(
+                          leading: const Icon(Icons.add_circle, color: Color(0xFFFF9933)),
+                          title: const Text('Add New Printer'),
+                          subtitle: const Text('Connect network, USB, or Bluetooth printer'),
+                          trailing: const Icon(Icons.arrow_forward_ios),
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => const PrinterManagementScreen()),
+                          ),
+                        ),
+                        Consumer(
+                          builder: (context, ref, child) {
+                            final printers = ref.watch(printerProvider);
+                            final connectedCount = printers.where((p) => p.status == PrinterStatus.connected).length;
+                            final defaultPrinter = ref.watch(defaultPrinterProvider);
+                            
+                            return Column(
+                              children: [
+                                ListTile(
+                                  leading: const Icon(Icons.info_outline),
+                                  title: const Text('Printer Status'),
+                                  subtitle: Text('${printers.length} total, $connectedCount connected'),
+                                  trailing: Chip(
+                                    label: Text('$connectedCount online'),
+                                    backgroundColor: connectedCount > 0 ? Colors.green[100] : Colors.red[100],
+                                    labelStyle: TextStyle(
+                                      color: connectedCount > 0 ? Colors.green[800] : Colors.red[800],
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                                if (defaultPrinter != null)
+                                  ListTile(
+                                    leading: Icon(Icons.star, color: Colors.amber[700]),
+                                    title: const Text('Default Printer'),
+                                    subtitle: Text('${defaultPrinter.name} (${defaultPrinter.connectionType.displayName})'),
+                                    trailing: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: defaultPrinter.status.color.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(color: defaultPrinter.status.color.withOpacity(0.3)),
+                                      ),
+                                      child: Text(
+                                        defaultPrinter.status.displayName,
+                                        style: TextStyle(
+                                          color: defaultPrinter.status.color,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                if (printers.isNotEmpty)
+                                  ListTile(
+                                    leading: const Icon(Icons.list, color: Color(0xFFFF9933)),
+                                    title: const Text('Manage Printers'),
+                                    subtitle: Text('Configure ${printers.length} printer${printers.length == 1 ? '' : 's'}'),
+                                    trailing: const Icon(Icons.arrow_forward_ios),
+                                    onTap: () => Navigator.push(
+                                      context,
+                                      MaterialPageRoute(builder: (context) => const PrinterListScreen()),
+                                    ),
+                                  ),
+                              ],
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
             // Reports & Analytics Card (Collapsible)
             Card(
               child: ExpansionTile(
@@ -8718,21 +10743,14 @@ class CustomerAnalyticsScreen extends ConsumerWidget {
 
   void _downloadFile(BuildContext context, String content, String fileName, String mimeType) {
     try {
-      // For Flutter web, we'll use the html package
-      // Create a blob and download it
-      final bytes = utf8.encode(content);
-      final blob = html.Blob([bytes], mimeType);
-      final url = html.Url.createObjectUrlFromBlob(blob);
-      
-      final anchor = html.document.createElement('a') as html.AnchorElement
-        ..href = url
-        ..style.display = 'none'
-        ..download = fileName;
-      
-      html.document.body?.children.add(anchor);
-      anchor.click();
-      html.document.body?.children.remove(anchor);
-      html.Url.revokeObjectUrl(url);
+      // For mobile platforms, show a message that file export is not available
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('File download is only available on web platform'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
       
       // Show success message
       ScaffoldMessenger.of(context).showSnackBar(
@@ -8847,6 +10865,790 @@ class CustomerAnalyticsScreen extends ConsumerWidget {
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Printer Management Screen - Add New Printer
+class PrinterManagementScreen extends ConsumerStatefulWidget {
+  const PrinterManagementScreen({super.key});
+
+  @override
+  ConsumerState<PrinterManagementScreen> createState() => _PrinterManagementScreenState();
+}
+
+class _PrinterManagementScreenState extends ConsumerState<PrinterManagementScreen> {
+  final _nameController = TextEditingController();
+  final _addressController = TextEditingController();
+  final _portController = TextEditingController(text: '9100');
+  PrinterConnectionType _selectedType = PrinterConnectionType.network;
+  bool _isScanning = false;
+  List<Map<String, String>> _discoveredDevices = [];
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _addressController.dispose();
+    _portController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Add New Printer'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Connection Type Selection
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Connection Type',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _buildConnectionTypeCard(
+                      PrinterConnectionType.network,
+                      Icons.wifi,
+                      'Network Printer',
+                      'Connect via WiFi or Ethernet cable',
+                    ),
+                    const SizedBox(height: 8),
+                    _buildConnectionTypeCard(
+                      PrinterConnectionType.usb,
+                      Icons.usb,
+                      'USB Printer',
+                      'Connect via USB cable',
+                    ),
+                    const SizedBox(height: 8),
+                    _buildConnectionTypeCard(
+                      PrinterConnectionType.bluetooth,
+                      Icons.bluetooth,
+                      'Bluetooth Printer',
+                      'Connect via Bluetooth pairing',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Device Discovery Section
+            if (_selectedType != PrinterConnectionType.usb) ...[
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            _selectedType == PrinterConnectionType.network 
+                                ? Icons.search 
+                                : Icons.bluetooth_searching,
+                            color: const Color(0xFFFF9933),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            _selectedType == PrinterConnectionType.network 
+                                ? 'Network Discovery' 
+                                : 'Bluetooth Discovery',
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const Spacer(),
+                          ElevatedButton.icon(
+                            onPressed: _isScanning ? null : _startDiscovery,
+                            icon: _isScanning 
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.search),
+                            label: Text(_isScanning ? 'Scanning...' : 'Scan'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFFF9933),
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      if (_discoveredDevices.isNotEmpty) ...[
+                        Text(
+                          'Discovered Devices:',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        ListView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: _discoveredDevices.length,
+                          itemBuilder: (context, index) {
+                            final device = _discoveredDevices[index];
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              child: ListTile(
+                                leading: Icon(
+                                  _selectedType == PrinterConnectionType.network 
+                                      ? Icons.print 
+                                      : Icons.bluetooth,
+                                  color: const Color(0xFFFF9933),
+                                ),
+                                title: Text(device['name'] ?? 'Unknown Device'),
+                                subtitle: Text(device['address'] ?? ''),
+                                trailing: ElevatedButton(
+                                  onPressed: () => _selectDiscoveredDevice(device),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFFFF9933),
+                                    foregroundColor: Colors.white,
+                                  ),
+                                  child: const Text('Select'),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        const Divider(),
+                        const SizedBox(height: 16),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            // Manual Configuration
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.settings, color: Color(0xFFFF9933)),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Manual Configuration',
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _nameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Printer Name',
+                        hintText: 'e.g., Kitchen Printer, Receipt Printer',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    if (_selectedType == PrinterConnectionType.network) ...[
+                      TextFormField(
+                        controller: _addressController,
+                        decoration: const InputDecoration(
+                          labelText: 'IP Address',
+                          hintText: 'e.g., 192.168.1.100',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _portController,
+                        decoration: const InputDecoration(
+                          labelText: 'Port',
+                          hintText: '9100',
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                    ] else if (_selectedType == PrinterConnectionType.bluetooth) ...[
+                      TextFormField(
+                        controller: _addressController,
+                        decoration: const InputDecoration(
+                          labelText: 'MAC Address',
+                          hintText: 'e.g., 00:11:22:33:44:55',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ] else ...[
+                      TextFormField(
+                        controller: _addressController,
+                        decoration: const InputDecoration(
+                          labelText: 'USB Device Path',
+                          hintText: 'e.g., /dev/usb/lp0 or COM1',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Action Buttons
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _testConnection,
+                    icon: const Icon(Icons.wifi_tethering),
+                    label: const Text('Test Connection'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _addPrinter,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add Printer'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFFF9933),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildConnectionTypeCard(
+    PrinterConnectionType type,
+    IconData icon,
+    String title,
+    String subtitle,
+  ) {
+    final isSelected = _selectedType == type;
+    return GestureDetector(
+      onTap: () => setState(() => _selectedType = type),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: isSelected ? const Color(0xFFFF9933) : Colors.grey[300]!,
+            width: isSelected ? 2 : 1,
+          ),
+          borderRadius: BorderRadius.circular(8),
+          color: isSelected ? const Color(0xFFFF9933).withOpacity(0.1) : null,
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              color: isSelected ? const Color(0xFFFF9933) : Colors.grey[600],
+              size: 32,
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: isSelected ? const Color(0xFFFF9933) : null,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: Colors.grey[600],
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (isSelected)
+              const Icon(
+                Icons.check_circle,
+                color: Color(0xFFFF9933),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _startDiscovery() async {
+    setState(() {
+      _isScanning = true;
+      _discoveredDevices.clear();
+    });
+
+    // Simulate device discovery
+    await Future.delayed(const Duration(seconds: 2));
+
+    if (_selectedType == PrinterConnectionType.network) {
+      // Simulate network printer discovery
+      setState(() {
+        _discoveredDevices = [
+          {'name': 'HP LaserJet Pro', 'address': '192.168.1.101'},
+          {'name': 'Canon PIXMA', 'address': '192.168.1.102'},
+          {'name': 'Epson Receipt Printer', 'address': '192.168.1.103'},
+        ];
+      });
+    } else if (_selectedType == PrinterConnectionType.bluetooth) {
+      // Simulate Bluetooth printer discovery
+      setState(() {
+        _discoveredDevices = [
+          {'name': 'Mobile Receipt Printer', 'address': '00:11:22:33:44:55'},
+          {'name': 'Portable Thermal Printer', 'address': '00:11:22:33:44:66'},
+        ];
+      });
+    }
+
+    setState(() => _isScanning = false);
+  }
+
+  void _selectDiscoveredDevice(Map<String, String> device) {
+    setState(() {
+      _nameController.text = device['name'] ?? '';
+      _addressController.text = device['address'] ?? '';
+    });
+  }
+
+  Future<void> _testConnection() async {
+    if (_nameController.text.isEmpty || _addressController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please fill in printer name and address'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('Testing connection...'),
+          ],
+        ),
+      ),
+    );
+
+    // Simulate connection test
+    await Future.delayed(const Duration(seconds: 3));
+
+    if (mounted) {
+      Navigator.of(context).pop(); // Close loading dialog
+
+      // Simulate success/failure
+      final success = DateTime.now().millisecond % 2 == 0;
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            success 
+                ? 'Connection successful! Printer is ready.' 
+                : 'Connection failed. Please check the settings.',
+          ),
+          backgroundColor: success ? Colors.green : Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _addPrinter() {
+    if (_nameController.text.isEmpty || _addressController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please fill in all required fields'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final printer = PrinterDevice(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      name: _nameController.text,
+      connectionType: _selectedType,
+      address: _addressController.text,
+      port: _selectedType == PrinterConnectionType.network 
+          ? int.tryParse(_portController.text) ?? 9100 
+          : null,
+      status: PrinterStatus.disconnected,
+      isDefault: false,
+      lastConnected: DateTime.now(),
+    );
+
+    ref.read(printerProvider.notifier).addPrinter(printer);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Printer added successfully!'),
+        backgroundColor: Colors.green,
+      ),
+    );
+
+    Navigator.of(context).pop();
+  }
+}
+
+// Printer List Screen - Manage Existing Printers
+class PrinterListScreen extends ConsumerWidget {
+  const PrinterListScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final printers = ref.watch(printerProvider);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Manage Printers'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const PrinterManagementScreen()),
+            ),
+          ),
+        ],
+      ),
+      body: printers.isEmpty
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.print_disabled,
+                    size: 64,
+                    color: Colors.grey[400],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No Printers Added',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Add a printer to get started',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  ElevatedButton.icon(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const PrinterManagementScreen()),
+                    ),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add Printer'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFFF9933),
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: printers.length,
+              itemBuilder: (context, index) {
+                final printer = printers[index];
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              printer.connectionType == PrinterConnectionType.network
+                                  ? Icons.wifi
+                                  : printer.connectionType == PrinterConnectionType.usb
+                                      ? Icons.usb
+                                      : Icons.bluetooth,
+                              color: const Color(0xFFFF9933),
+                              size: 24,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        printer.name,
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      if (printer.isDefault) ...[
+                                        const SizedBox(width: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.amber[100],
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(color: Colors.amber[300]!),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.star,
+                                                size: 12,
+                                                color: Colors.amber[700],
+                                              ),
+                                              const SizedBox(width: 2),
+                                              Text(
+                                                'Default',
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  color: Colors.amber[700],
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '${printer.connectionType.displayName} • ${printer.address}',
+                                    style: TextStyle(
+                                      color: Colors.grey[600],
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: printer.status.color.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: printer.status.color.withOpacity(0.3)),
+                              ),
+                              child: Text(
+                                printer.status.displayName,
+                                style: TextStyle(
+                                  color: printer.status.color,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            if (printer.status == PrinterStatus.disconnected) ...[
+                              ElevatedButton.icon(
+                                onPressed: () => ref
+                                    .read(printerProvider.notifier)
+                                    .connectPrinter(printer.id),
+                                icon: const Icon(Icons.link, size: 16),
+                                label: const Text('Connect'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green,
+                                  foregroundColor: Colors.white,
+                                  minimumSize: const Size(0, 32),
+                                ),
+                              ),
+                            ] else if (printer.status == PrinterStatus.connected) ...[
+                              ElevatedButton.icon(
+                                onPressed: () => ref
+                                    .read(printerProvider.notifier)
+                                    .disconnectPrinter(printer.id),
+                                icon: const Icon(Icons.link_off, size: 16),
+                                label: const Text('Disconnect'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.grey,
+                                  foregroundColor: Colors.white,
+                                  minimumSize: const Size(0, 32),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              ElevatedButton.icon(
+                                onPressed: () => ref
+                                    .read(printerProvider.notifier)
+                                    .testPrint(printer.id),
+                                icon: const Icon(Icons.print, size: 16),
+                                label: const Text('Test Print'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.blue,
+                                  foregroundColor: Colors.white,
+                                  minimumSize: const Size(0, 32),
+                                ),
+                              ),
+                            ],
+                            const Spacer(),
+                            if (!printer.isDefault && printer.status == PrinterStatus.connected)
+                              ElevatedButton.icon(
+                                onPressed: () => ref
+                                    .read(printerProvider.notifier)
+                                    .setDefaultPrinter(printer.id),
+                                icon: const Icon(Icons.star, size: 16),
+                                label: const Text('Set Default'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.amber,
+                                  foregroundColor: Colors.white,
+                                  minimumSize: const Size(0, 32),
+                                ),
+                              ),
+                            const SizedBox(width: 8),
+                            PopupMenuButton<String>(
+                              onSelected: (action) => _handlePrinterAction(
+                                context,
+                                ref,
+                                printer,
+                                action,
+                              ),
+                              itemBuilder: (context) => [
+                                const PopupMenuItem(
+                                  value: 'edit',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.edit, size: 16),
+                                      SizedBox(width: 8),
+                                      Text('Edit'),
+                                    ],
+                                  ),
+                                ),
+                                const PopupMenuItem(
+                                  value: 'delete',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.delete, size: 16, color: Colors.red),
+                                      SizedBox(width: 8),
+                                      Text('Delete', style: TextStyle(color: Colors.red)),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                              child: const Icon(Icons.more_vert),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+    );
+  }
+
+  void _handlePrinterAction(
+    BuildContext context,
+    WidgetRef ref,
+    PrinterDevice printer,
+    String action,
+  ) {
+    switch (action) {
+      case 'edit':
+        // TODO: Implement edit functionality
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Edit functionality coming soon')),
+        );
+        break;
+      case 'delete':
+        _showDeleteConfirmation(context, ref, printer);
+        break;
+    }
+  }
+
+  void _showDeleteConfirmation(
+    BuildContext context,
+    WidgetRef ref,
+    PrinterDevice printer,
+  ) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Printer'),
+        content: Text(
+          'Are you sure you want to delete "${printer.name}"? This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              ref.read(printerProvider.notifier).removePrinter(printer.id);
+              Navigator.of(context).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Printer deleted successfully'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Delete'),
           ),
         ],
       ),

@@ -21,7 +21,7 @@ dependencies:
   sqflite: ^2.3.0
   
   # Bluetooth & Printing
-  flutter_bluetooth_serial: ^0.4.0
+  # flutter_bluetooth_serial: ^0.4.0  # Temporarily disabled for Android compatibility
   esc_pos_utils: ^1.1.0
   
   # Utilities
