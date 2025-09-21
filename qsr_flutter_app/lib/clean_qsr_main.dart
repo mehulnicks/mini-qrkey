@@ -137,6 +137,14 @@ class AppLocalizations {
       'kot_printing_desc': 'Enable automatic KOT printing when orders are placed',
       'delivery_service': 'Delivery Service',
       'delivery_service_desc': 'Enable delivery orders with charges',
+      'packaging_service': 'Packaging Service',
+      'packaging_service_desc': 'Enable packaging charges for all orders',
+      'service_charges': 'Service Charges',
+      'service_charges_desc': 'Enable service charges for dine-in orders only',
+      'sgst': 'SGST',
+      'cgst': 'CGST',
+      'sgst_rate': 'SGST Rate (%)',
+      'cgst_rate': 'CGST Rate (%)',
       'english': 'English',
       'hindi': 'Hindi',
       // KOT Enhanced
@@ -296,6 +304,14 @@ class AppLocalizations {
       'kot_printing_desc': 'ऑर्डर दिए जाने पर स्वचालित KOT प्रिंटिंग सक्षम करें',
       'delivery_service': 'डिलीवरी सेवा',
       'delivery_service_desc': 'शुल्क के साथ डिलीवरी ऑर्डर सक्षम करें',
+      'packaging_service': 'पैकेजिंग सेवा',
+      'packaging_service_desc': 'सभी ऑर्डर्स के लिए पैकेजिंग शुल्क सक्षम करें',
+      'service_charges': 'सेवा शुल्क',
+      'service_charges_desc': 'केवल डाइन-इन ऑर्डर्स के लिए सेवा शुल्क सक्षम करें',
+      'sgst': 'राज्य जी.एस.टी',
+      'cgst': 'केंद्रीय जी.एस.टी',
+      'sgst_rate': 'राज्य जी.एस.टी दर (%)',
+      'cgst_rate': 'केंद्रीय जी.एस.टी दर (%)',
       'english': 'अंग्रेजी',
       'hindi': 'हिंदी',
       // KOT Enhanced
@@ -444,14 +460,14 @@ class WhatsAppService {
       buffer.writeln('After Item Discounts: ₹${order.itemsTotal.toStringAsFixed(2)}');
     }
     
-    // Add charges if applicable
-    if (order.type == OrderType.delivery && order.charges.deliveryCharge > 0) {
+    // Add charges if applicable and enabled
+    if (order.type == OrderType.delivery && settings.deliveryEnabled && order.charges.deliveryCharge > 0) {
       buffer.writeln('🚚 Delivery: ₹${order.charges.deliveryCharge.toStringAsFixed(2)}');
     }
-    if (order.charges.packagingCharge > 0) {
+    if ((order.type == OrderType.delivery || order.type == OrderType.takeaway) && settings.packagingEnabled && order.charges.packagingCharge > 0) {
       buffer.writeln('📦 Packaging: ₹${order.charges.packagingCharge.toStringAsFixed(2)}');
     }
-    if (order.charges.serviceCharge > 0) {
+    if (order.type == OrderType.dineIn && settings.serviceEnabled && order.charges.serviceCharge > 0) {
       buffer.writeln('🔧 Service: ₹${order.charges.serviceCharge.toStringAsFixed(2)}');
     }
     
@@ -465,9 +481,13 @@ class WhatsAppService {
       }
     }
     
-    buffer.writeln('💸 GST (18%): ₹${order.taxAmount.toStringAsFixed(2)}');
+    // Show tax breakdown
+    final sgstAmount = order.calculateSGST(settings);
+    final cgstAmount = order.calculateCGST(settings);
+    buffer.writeln('💸 SGST (${(settings.sgstRate * 100).toStringAsFixed(1)}%): ₹${sgstAmount.toStringAsFixed(2)}');
+    buffer.writeln('💸 CGST (${(settings.cgstRate * 100).toStringAsFixed(1)}%): ₹${cgstAmount.toStringAsFixed(2)}');
     buffer.writeln('━━━━━━━━━━━━━━━━━━━━━');
-    buffer.writeln('💳 *Total: ₹${order.grandTotal.toStringAsFixed(2)}*');
+    buffer.writeln('💳 *Total: ₹${order.getGrandTotal(settings).toStringAsFixed(2)}*');
     
     // Show total savings if any discounts
     if (order.hasDiscounts) {
@@ -532,12 +552,14 @@ class DiscountDialogs {
   static Future<OrderDiscount?> showOrderDiscountDialog({
     required BuildContext context,
     required Order order,
+    required AppSettings settings,
     OrderDiscount? existingDiscount,
   }) async {
     return showDialog<OrderDiscount>(
       context: context,
       builder: (context) => OrderDiscountDialog(
         order: order,
+        settings: settings,
         existingDiscount: existingDiscount,
       ),
     );
@@ -775,11 +797,13 @@ class _ItemDiscountDialogState extends State<ItemDiscountDialog> {
 class OrderDiscountDialog extends StatefulWidget {
   final Order order;
   final OrderDiscount? existingDiscount;
+  final AppSettings settings;
 
   const OrderDiscountDialog({
     super.key,
     required this.order,
     this.existingDiscount,
+    required this.settings,
   });
 
   @override
@@ -1014,11 +1038,11 @@ class _OrderDiscountDialogState extends State<OrderDiscountDialog> {
     
     if (applyToSubtotal) {
       newTaxableAmount = (widget.order.subtotal - discountAmount) + widget.order.totalCharges;
-      newTaxAmount = newTaxableAmount * 0.18;
+      newTaxAmount = newTaxableAmount * widget.settings.totalTaxRate;
       newGrandTotal = newTaxableAmount + newTaxAmount;
     } else {
       newTaxableAmount = widget.order.taxableAmount - discountAmount;
-      newTaxAmount = newTaxableAmount * 0.18;
+      newTaxAmount = newTaxableAmount * widget.settings.totalTaxRate;
       newGrandTotal = newTaxableAmount + newTaxAmount;
     }
     
@@ -1823,23 +1847,57 @@ class Order {
       ? subtotal - orderDiscountAmount
       : taxableAmount - orderDiscountAmount;
       
-  double get taxAmount {
+  double getTaxAmount(AppSettings settings) {
     if (orderDiscount?.applyToSubtotal == true) {
       // Tax on discounted subtotal + charges
-      return (discountedAmount + totalCharges) * 0.18;
+      return (discountedAmount + totalCharges) * settings.totalTaxRate;
     } else {
       // Tax on discounted taxable amount
-      return discountedAmount * 0.18;
+      return discountedAmount * settings.totalTaxRate;
     }
   }
   
-  double get grandTotal {
+  double getSgstAmount(AppSettings settings) {
+    if (orderDiscount?.applyToSubtotal == true) {
+      return (discountedAmount + totalCharges) * settings.sgstRate;
+    } else {
+      return discountedAmount * settings.sgstRate;
+    }
+  }
+  
+  double getCgstAmount(AppSettings settings) {
+    if (orderDiscount?.applyToSubtotal == true) {
+      return (discountedAmount + totalCharges) * settings.cgstRate;
+    } else {
+      return discountedAmount * settings.cgstRate;
+    }
+  }
+  
+  double getGrandTotal(AppSettings settings) {
+    final taxAmount = getTaxAmount(settings);
     if (orderDiscount?.applyToSubtotal == true) {
       return discountedAmount + totalCharges + taxAmount;
     } else {
       return discountedAmount + taxAmount;
     }
   }
+  
+  // Method aliases for consistency
+  double calculateSGST(AppSettings settings) => getSgstAmount(settings);
+  double calculateCGST(AppSettings settings) => getCgstAmount(settings);
+  double calculateTotalTax(AppSettings settings) => getTaxAmount(settings);
+  
+  // Backwards compatibility getter for grandTotal (using default tax rates)
+  double get grandTotal => getGrandTotal(AppSettings(
+    sgstRate: 0.09, // 9% SGST
+    cgstRate: 0.09, // 9% CGST
+  ));
+  
+  // Backwards compatibility getter for taxAmount
+  double get taxAmount => getTaxAmount(AppSettings(
+    sgstRate: 0.09, // 9% SGST
+    cgstRate: 0.09, // 9% CGST
+  ));
   
   // Total discount amount (items + order)
   double get totalDiscountAmount => itemsDiscountAmount + orderDiscountAmount;
@@ -1890,7 +1948,8 @@ class Order {
 
 class AppSettings {
   final String currency;
-  final double taxRate;
+  final double sgstRate;
+  final double cgstRate;
   final String businessName;
   final String address;
   final String phone;
@@ -1898,12 +1957,16 @@ class AppSettings {
   final bool kotEnabled;
   final String defaultLanguage;
   final bool deliveryEnabled;
+  final bool packagingEnabled;
+  final bool serviceEnabled;
   final double defaultDeliveryCharge;
   final double defaultPackagingCharge;
+  final double defaultServiceCharge;
   
   AppSettings({
     this.currency = '₹',
-    this.taxRate = 0.18,
+    this.sgstRate = 0.09,
+    this.cgstRate = 0.09,
     this.businessName = 'My Restaurant',
     this.address = '',
     this.phone = '',
@@ -1911,13 +1974,17 @@ class AppSettings {
     this.kotEnabled = false,
     this.defaultLanguage = 'en',
     this.deliveryEnabled = true,
+    this.packagingEnabled = true,
+    this.serviceEnabled = true,
     this.defaultDeliveryCharge = 50.0,
     this.defaultPackagingCharge = 10.0,
+    this.defaultServiceCharge = 20.0,
   });
   
   AppSettings copyWith({
     String? currency,
-    double? taxRate,
+    double? sgstRate,
+    double? cgstRate,
     String? businessName,
     String? address,
     String? phone,
@@ -1925,12 +1992,16 @@ class AppSettings {
     bool? kotEnabled,
     String? defaultLanguage,
     bool? deliveryEnabled,
+    bool? packagingEnabled,
+    bool? serviceEnabled,
     double? defaultDeliveryCharge,
     double? defaultPackagingCharge,
+    double? defaultServiceCharge,
   }) {
     return AppSettings(
       currency: currency ?? this.currency,
-      taxRate: taxRate ?? this.taxRate,
+      sgstRate: sgstRate ?? this.sgstRate,
+      cgstRate: cgstRate ?? this.cgstRate,
       businessName: businessName ?? this.businessName,
       address: address ?? this.address,
       phone: phone ?? this.phone,
@@ -1938,10 +2009,16 @@ class AppSettings {
       kotEnabled: kotEnabled ?? this.kotEnabled,
       defaultLanguage: defaultLanguage ?? this.defaultLanguage,
       deliveryEnabled: deliveryEnabled ?? this.deliveryEnabled,
+      packagingEnabled: packagingEnabled ?? this.packagingEnabled,
+      serviceEnabled: serviceEnabled ?? this.serviceEnabled,
       defaultDeliveryCharge: defaultDeliveryCharge ?? this.defaultDeliveryCharge,
       defaultPackagingCharge: defaultPackagingCharge ?? this.defaultPackagingCharge,
+      defaultServiceCharge: defaultServiceCharge ?? this.defaultServiceCharge,
     );
   }
+  
+  // Helper method to get total tax rate (SGST + CGST)
+  double get totalTaxRate => sgstRate + cgstRate;
 }
 
 // Customer Analytics Data Models
@@ -2311,69 +2388,55 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
   SettingsNotifier() : super(AppSettings());
 
   void updateCurrency(String currency) {
-    state = AppSettings(
-      currency: currency,
-      taxRate: state.taxRate,
-      businessName: state.businessName,
-      address: state.address,
-      phone: state.phone,
-      email: state.email,
-    );
+    state = state.copyWith(currency: currency);
   }
 
-  void updateTaxRate(double taxRate) {
-    state = AppSettings(
-      currency: state.currency,
-      taxRate: taxRate,
-      businessName: state.businessName,
-      address: state.address,
-      phone: state.phone,
-      email: state.email,
-    );
+  void updateSgstRate(double sgstRate) {
+    state = state.copyWith(sgstRate: sgstRate);
+  }
+
+  void updateCgstRate(double cgstRate) {
+    state = state.copyWith(cgstRate: cgstRate);
   }
 
   void updateBusinessName(String businessName) {
-    state = AppSettings(
-      currency: state.currency,
-      taxRate: state.taxRate,
-      businessName: businessName,
-      address: state.address,
-      phone: state.phone,
-      email: state.email,
-    );
+    state = state.copyWith(businessName: businessName);
   }
 
   void updateAddress(String address) {
-    state = AppSettings(
-      currency: state.currency,
-      taxRate: state.taxRate,
-      businessName: state.businessName,
-      address: address,
-      phone: state.phone,
-      email: state.email,
-    );
+    state = state.copyWith(address: address);
   }
 
   void updatePhone(String phone) {
-    state = AppSettings(
-      currency: state.currency,
-      taxRate: state.taxRate,
-      businessName: state.businessName,
-      address: state.address,
-      phone: phone,
-      email: state.email,
-    );
+    state = state.copyWith(phone: phone);
   }
 
   void updateEmail(String email) {
-    state = AppSettings(
-      currency: state.currency,
-      taxRate: state.taxRate,
-      businessName: state.businessName,
-      address: state.address,
-      phone: state.phone,
-      email: email,
-    );
+    state = state.copyWith(email: email);
+  }
+  
+  void updateDeliveryEnabled(bool enabled) {
+    state = state.copyWith(deliveryEnabled: enabled);
+  }
+  
+  void updatePackagingEnabled(bool enabled) {
+    state = state.copyWith(packagingEnabled: enabled);
+  }
+  
+  void updateServiceEnabled(bool enabled) {
+    state = state.copyWith(serviceEnabled: enabled);
+  }
+  
+  void updateDefaultDeliveryCharge(double charge) {
+    state = state.copyWith(defaultDeliveryCharge: charge);
+  }
+  
+  void updateDefaultPackagingCharge(double charge) {
+    state = state.copyWith(defaultPackagingCharge: charge);
+  }
+  
+  void updateDefaultServiceCharge(double charge) {
+    state = state.copyWith(defaultServiceCharge: charge);
   }
 
   void updateSettings(AppSettings newSettings) {
@@ -3957,7 +4020,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
       setState(() {
         _deliveryCharge = settings.defaultDeliveryCharge;
         _packagingCharge = settings.defaultPackagingCharge;
-        _serviceCharge = 0.0; // Service charge can be set separately
+        _serviceCharge = settings.defaultServiceCharge;
       });
     });
   }
@@ -3975,6 +4038,43 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
         // Home delivery: Both delivery and packaging charges apply
         return _deliveryCharge + _packagingCharge;
     }
+  }
+  
+  // Get OrderCharges object based on settings and order type
+  OrderCharges _getOrderCharges(OrderType orderType, AppSettings settings) {
+    double deliveryCharge = 0.0;
+    double packagingCharge = 0.0;
+    double serviceCharge = 0.0;
+    
+    switch (orderType) {
+      case OrderType.dineIn:
+        // Dine-in: Only service charge if enabled
+        if (settings.serviceEnabled) {
+          serviceCharge = _serviceCharge;
+        }
+        break;
+      case OrderType.takeaway:
+        // Takeaway: Only packaging charge if enabled
+        if (settings.packagingEnabled) {
+          packagingCharge = _packagingCharge;
+        }
+        break;
+      case OrderType.delivery:
+        // Delivery: Both delivery and packaging charges if enabled
+        if (settings.deliveryEnabled) {
+          deliveryCharge = _deliveryCharge;
+        }
+        if (settings.packagingEnabled) {
+          packagingCharge = _packagingCharge;
+        }
+        break;
+    }
+    
+    return OrderCharges(
+      deliveryCharge: deliveryCharge,
+      packagingCharge: packagingCharge,
+      serviceCharge: serviceCharge,
+    );
   }
 
   // Phone number validation
@@ -4060,17 +4160,17 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
       // Discount applied to subtotal, then add charges and calculate tax
       final discountedSubtotal = subtotal - discountAmount;
       discountedAmount = discountedSubtotal + charges;
-      tax = discountedAmount * settings.taxRate;
+      tax = discountedAmount * settings.totalTaxRate;
       total = discountedAmount + tax;
     } else if (orderDiscount != null) {
       // Discount applied to taxable amount
       discountedAmount = taxableAmount - discountAmount;
-      tax = discountedAmount * settings.taxRate;
+      tax = discountedAmount * settings.totalTaxRate;
       total = discountedAmount + tax;
     } else {
       // No discount
       discountedAmount = taxableAmount;
-      tax = discountedAmount * settings.taxRate;
+      tax = discountedAmount * settings.totalTaxRate;
       total = discountedAmount + tax;
     }
     
@@ -4562,17 +4662,17 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
             // Discount applied to subtotal, then add charges and calculate tax
             final discountedSubtotal = subtotal - discountAmount;
             discountedAmount = discountedSubtotal + charges;
-            tax = discountedAmount * settings.taxRate;
+            tax = discountedAmount * settings.totalTaxRate;
             total = discountedAmount + tax;
           } else if (orderDiscount != null) {
             // Discount applied to taxable amount
             discountedAmount = taxableAmount - discountAmount;
-            tax = discountedAmount * settings.taxRate;
+            tax = discountedAmount * settings.totalTaxRate;
             total = discountedAmount + tax;
           } else {
             // No discount
             discountedAmount = taxableAmount;
-            tax = discountedAmount * settings.taxRate;
+            tax = discountedAmount * settings.totalTaxRate;
             total = discountedAmount + tax;
           }
           
@@ -4911,8 +5011,8 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                             ),
                           ],
                           
-                          // Delivery/Packaging charges for delivery orders
-                          if (orderType == OrderType.delivery) ...[
+                          // Delivery charge for delivery orders (if enabled)
+                          if (orderType == OrderType.delivery && settings.deliveryEnabled && _deliveryCharge > 0) ...[
                             const SizedBox(height: 4),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -4921,6 +5021,9 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                                 Text(formatIndianCurrency(settings.currency, _deliveryCharge)),
                               ],
                             ),
+                          ],
+                          // Packaging charge for delivery/takeaway orders (if enabled)
+                          if ((orderType == OrderType.delivery || orderType == OrderType.takeaway) && settings.packagingEnabled && _packagingCharge > 0) ...[
                             const SizedBox(height: 4),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -4929,13 +5032,15 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                                 Text(formatIndianCurrency(settings.currency, _packagingCharge)),
                               ],
                             ),
-                          ] else if (orderType == OrderType.takeaway) ...[
+                          ],
+                          // Service charge for dine-in orders (if enabled)
+                          if (orderType == OrderType.dineIn && settings.serviceEnabled && _serviceCharge > 0) ...[
                             const SizedBox(height: 4),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text('Packaging Charge:'),
-                                Text(formatIndianCurrency(settings.currency, _packagingCharge)),
+                                const Text('Service Charge:'),
+                                Text(formatIndianCurrency(settings.currency, _serviceCharge)),
                               ],
                             ),
                           ],
@@ -4999,7 +5104,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text('GST (${(settings.taxRate * 100).toInt()}%):'),
+                              Text('GST (${(settings.totalTaxRate * 100).toInt()}%):'),
                               Text(formatIndianCurrency(settings.currency, tax)),
                             ],
                           ),
@@ -5371,11 +5476,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     
     // Create a temporary order to show in discount dialog
     final subtotal = currentOrder.fold(0.0, (sum, item) => sum + item.total);
-    final charges = OrderCharges(
-      deliveryCharge: orderType == OrderType.delivery ? _deliveryCharge : 0.0,
-      packagingCharge: (orderType == OrderType.takeaway || orderType == OrderType.delivery) ? _packagingCharge : 0.0,
-      serviceCharge: orderType == OrderType.dineIn ? _serviceCharge : 0.0,
-    );
+    final charges = _getOrderCharges(orderType, settings);
     
     final tempOrder = Order(
       id: 'temp',
@@ -5391,6 +5492,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     final discount = await DiscountDialogs.showOrderDiscountDialog(
       context: context,
       order: tempOrder,
+      settings: settings,
       existingDiscount: currentDiscount,
     );
     
@@ -5437,11 +5539,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     final orderId = DateTime.now().millisecondsSinceEpoch.toString();
     
     // Create and add the order to the orders list
-    final orderCharges = OrderCharges(
-      deliveryCharge: orderType == OrderType.delivery ? _deliveryCharge : 0.0,
-      packagingCharge: (orderType == OrderType.takeaway || orderType == OrderType.delivery) ? _packagingCharge : 0.0,
-      serviceCharge: orderType == OrderType.dineIn ? _serviceCharge : 0.0,
-    );
+    final orderCharges = _getOrderCharges(orderType, settings);
 
     // Get current order discount
     final orderDiscount = ref.read(currentOrderDiscountProvider);
@@ -5795,6 +5893,7 @@ class OrderHistoryScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final orders = ref.watch(ordersProvider);
+    final settings = ref.watch(settingsProvider);
     
     // Separate active and completed orders
     final activeOrders = orders.where((order) => 
@@ -6311,16 +6410,16 @@ class OrderHistoryScreen extends ConsumerWidget {
           onSelected: (value) {
             switch (value) {
               case 'view':
-                _showOrderDetails(context, order);
+                _showOrderDetails(context, order, ref.read(settingsProvider));
                 break;
               case 'print':
-                _printOrderBill(context, order);
+                _printOrderBill(context, order, ref.read(settingsProvider));
                 break;
               case 'whatsapp':
                 _shareOnWhatsApp(context, ref, order);
                 break;
               case 'split':
-                _splitOrderBill(context, order);
+                _splitOrderBill(context, order, ref.read(settingsProvider));
                 break;
               case 'cancel':
                 if (order.status != OrderStatus.completed) {
@@ -6393,10 +6492,10 @@ class OrderHistoryScreen extends ConsumerWidget {
       onSelected: (value) {
         switch (value) {
           case 'view':
-            _showOrderDetails(context, order);
+            _showOrderDetails(context, order, ref.read(settingsProvider));
             break;
           case 'print':
-            _printOrderBill(context, order);
+            _printOrderBill(context, order, ref.read(settingsProvider));
             break;
           case 'whatsapp':
             _shareOnWhatsApp(context, ref, order);
@@ -6449,7 +6548,7 @@ class OrderHistoryScreen extends ConsumerWidget {
 
 
 
-  void _showOrderDetails(BuildContext context, Order order) {
+  void _showOrderDetails(BuildContext context, Order order, AppSettings settings) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -6559,8 +6658,8 @@ class OrderHistoryScreen extends ConsumerWidget {
                   ],
                 ),
               ],
-              // Show delivery charge if delivery order
-              if (order.type == OrderType.delivery && order.charges.deliveryCharge > 0) ...[
+              // Show delivery charge if delivery order and enabled
+              if (order.type == OrderType.delivery && settings.deliveryEnabled && order.charges.deliveryCharge > 0) ...[
                 const SizedBox(height: 4),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -6570,8 +6669,8 @@ class OrderHistoryScreen extends ConsumerWidget {
                   ],
                 ),
               ],
-              // Show packaging charge if applicable
-              if (order.charges.packagingCharge > 0) ...[
+              // Show packaging charge if applicable and enabled
+              if ((order.type == OrderType.delivery || order.type == OrderType.takeaway) && settings.packagingEnabled && order.charges.packagingCharge > 0) ...[
                 const SizedBox(height: 4),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -6581,8 +6680,8 @@ class OrderHistoryScreen extends ConsumerWidget {
                   ],
                 ),
               ],
-              // Show service charge if applicable
-              if (order.charges.serviceCharge > 0) ...[
+              // Show service charge if applicable and enabled
+              if (order.type == OrderType.dineIn && settings.serviceEnabled && order.charges.serviceCharge > 0) ...[
                 const SizedBox(height: 4),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -6624,11 +6723,20 @@ class OrderHistoryScreen extends ConsumerWidget {
               ],
               
               const SizedBox(height: 8),
+              // SGST display
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('GST (18%):'),
-                  Text('₹${order.taxAmount.toStringAsFixed(2)}'),
+                  Text('SGST (${(settings.sgstRate * 100).toStringAsFixed(1)}%):'),
+                  Text('₹${order.calculateSGST(settings).toStringAsFixed(2)}'),
+                ],
+              ),
+              // CGST display
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('CGST (${(settings.cgstRate * 100).toStringAsFixed(1)}%):'),
+                  Text('₹${order.calculateCGST(settings).toStringAsFixed(2)}'),
                 ],
               ),
               const Divider(height: 16),
@@ -6691,11 +6799,7 @@ class OrderHistoryScreen extends ConsumerWidget {
     );
   }
 
-  void _printOrderBill(BuildContext context, Order order) {
-    final settings = AppSettings(
-      currency: 'INR',
-      taxRate: 0.18, // Default 18% GST
-    );
+  void _printOrderBill(BuildContext context, Order order, AppSettings settings) {
     
     final billContent = _generateOrderBillContent(order, settings);
     
@@ -6756,15 +6860,10 @@ class OrderHistoryScreen extends ConsumerWidget {
     );
   }
 
-  void _splitOrderBill(BuildContext context, Order order) {
+  void _splitOrderBill(BuildContext context, Order order, AppSettings settings) {
     int numberOfSplits = 2;
     bool splitEqually = true;
     List<List<OrderItem>> splitOrders = [];
-    
-    final settings = AppSettings(
-      currency: 'INR',
-      taxRate: 0.18,
-    );
     
     void _updateSplits() {
       if (splitEqually) {
@@ -6839,7 +6938,7 @@ class OrderHistoryScreen extends ConsumerWidget {
                     itemBuilder: (context, splitIndex) {
                       final splitItems = splitOrders[splitIndex];
                       final splitSubtotal = splitItems.fold(0.0, (sum, item) => sum + item.total);
-                      final splitTax = splitSubtotal * settings.taxRate;
+                      final splitTax = splitSubtotal * settings.totalTaxRate;
                       final splitGrandTotal = splitSubtotal + splitTax;
                       
                       return Card(
@@ -6883,7 +6982,7 @@ class OrderHistoryScreen extends ConsumerWidget {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Text('GST (${(settings.taxRate * 100).toInt()}%):', style: const TextStyle(fontSize: 12)),
+                                  Text('GST (${(settings.totalTaxRate * 100).toInt()}%):', style: const TextStyle(fontSize: 12)),
                                   Text('₹${splitTax.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12)),
                                 ],
                               ),
@@ -6919,7 +7018,7 @@ class OrderHistoryScreen extends ConsumerWidget {
                 for (int i = 0; i < numberOfSplits; i++) {
                   final splitItems = splitOrders[i];
                   final splitSubtotal = splitItems.fold(0.0, (sum, item) => sum + item.total);
-                  final splitTax = splitSubtotal * settings.taxRate;
+                  final splitTax = splitSubtotal * settings.totalTaxRate;
                   final billContent = _generateSplitOrderBillContent(splitItems, settings, splitSubtotal, splitTax, i + 1, numberOfSplits, order.id, order);
                   
                   // In a real app, this would print each bill separately
@@ -6990,18 +7089,18 @@ class OrderHistoryScreen extends ConsumerWidget {
       buffer.writeln('After Item Discounts: ₹${order.itemsTotal.toStringAsFixed(2)}');
     }
     
-    // Add delivery charge if applicable
-    if (order.type == OrderType.delivery && order.charges.deliveryCharge > 0) {
+    // Add delivery charge if applicable and enabled
+    if (order.type == OrderType.delivery && settings.deliveryEnabled && order.charges.deliveryCharge > 0) {
       buffer.writeln('Delivery Charge: ₹${order.charges.deliveryCharge.toStringAsFixed(2)}');
     }
     
-    // Add packaging charge if applicable
-    if (order.charges.packagingCharge > 0) {
+    // Add packaging charge if applicable and enabled
+    if ((order.type == OrderType.delivery || order.type == OrderType.takeaway) && settings.packagingEnabled && order.charges.packagingCharge > 0) {
       buffer.writeln('Packaging Charge: ₹${order.charges.packagingCharge.toStringAsFixed(2)}');
     }
     
-    // Add service charge if applicable
-    if (order.charges.serviceCharge > 0) {
+    // Add service charge if applicable and enabled
+    if (order.type == OrderType.dineIn && settings.serviceEnabled && order.charges.serviceCharge > 0) {
       buffer.writeln('Service Charge: ₹${order.charges.serviceCharge.toStringAsFixed(2)}');
     }
     
@@ -7018,7 +7117,11 @@ class OrderHistoryScreen extends ConsumerWidget {
       buffer.writeln('After Order Discount: ₹${order.discountedAmount.toStringAsFixed(2)}');
     }
     
-    buffer.writeln('GST (18%): ₹${order.taxAmount.toStringAsFixed(2)}');
+    // Show tax breakdown
+    final sgstAmount = order.calculateSGST(settings);
+    final cgstAmount = order.calculateCGST(settings);
+    buffer.writeln('SGST (${(settings.sgstRate * 100).toStringAsFixed(1)}%): ₹${sgstAmount.toStringAsFixed(2)}');
+    buffer.writeln('CGST (${(settings.cgstRate * 100).toStringAsFixed(1)}%): ₹${cgstAmount.toStringAsFixed(2)}');
     buffer.writeln('=' * 32);
     
     // Show total savings if any discounts
@@ -7027,7 +7130,7 @@ class OrderHistoryScreen extends ConsumerWidget {
       buffer.writeln('-' * 32);
     }
     
-    buffer.writeln('TOTAL: ₹${order.grandTotal.toStringAsFixed(2)}');
+    buffer.writeln('TOTAL: ₹${order.getGrandTotal(settings).toStringAsFixed(2)}');
     buffer.writeln('=' * 32);
     buffer.writeln('       Thank you!');
     buffer.writeln('   Visit us again!');
@@ -7059,20 +7162,20 @@ class OrderHistoryScreen extends ConsumerWidget {
     // Calculate proportional charges based on split ratio
     final splitRatio = splitSubtotal / originalOrder.subtotal;
     
-    // Add proportional delivery charge if applicable
-    if (originalOrder.type == OrderType.delivery && originalOrder.charges.deliveryCharge > 0) {
+    // Add proportional delivery charge if applicable and enabled
+    if (originalOrder.type == OrderType.delivery && settings.deliveryEnabled && originalOrder.charges.deliveryCharge > 0) {
       final splitDeliveryCharge = originalOrder.charges.deliveryCharge * splitRatio;
       buffer.writeln('Delivery Charge: ₹${splitDeliveryCharge.toStringAsFixed(2)}');
     }
     
-    // Add proportional packaging charge if applicable
-    if (originalOrder.charges.packagingCharge > 0) {
+    // Add proportional packaging charge if applicable and enabled
+    if ((originalOrder.type == OrderType.delivery || originalOrder.type == OrderType.takeaway) && settings.packagingEnabled && originalOrder.charges.packagingCharge > 0) {
       final splitPackagingCharge = originalOrder.charges.packagingCharge * splitRatio;
       buffer.writeln('Packaging Charge: ₹${splitPackagingCharge.toStringAsFixed(2)}');
     }
     
-    // Add proportional service charge if applicable
-    if (originalOrder.charges.serviceCharge > 0) {
+    // Add proportional service charge if applicable and enabled
+    if (originalOrder.type == OrderType.dineIn && settings.serviceEnabled && originalOrder.charges.serviceCharge > 0) {
       final splitServiceCharge = originalOrder.charges.serviceCharge * splitRatio;
       buffer.writeln('Service Charge: ₹${splitServiceCharge.toStringAsFixed(2)}');
     }
@@ -8933,7 +9036,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     buffer.writeln('');
     
     // Detailed CSV Header
-    buffer.writeln('Date,Time,Order ID,Customer Name,Phone,Order Type,Status,Items Count,Items Subtotal,Item Discounts,Order Discount,Total Discounts,Subtotal After Discounts,Tax,Grand Total,Payment Method,Items Detail');
+    buffer.writeln('Date,Time,Order ID,Customer Name,Phone,Order Type,Status,Items Count,Items Subtotal,Item Discounts,Order Discount,Total Discounts,Subtotal After Discounts,SGST,CGST,Total Tax,Grand Total,Payment Method,Items Detail');
     
     // Detailed CSV Data
     for (final order in orders) {
@@ -8950,8 +9053,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       final orderDiscount = order.orderDiscountAmount.toStringAsFixed(2);
       final totalDiscounts = order.totalDiscountAmount.toStringAsFixed(2);
       final subtotalAfterDiscounts = order.subtotal.toStringAsFixed(2);
-      final tax = order.taxAmount.toStringAsFixed(2);
-      final total = order.grandTotal.toStringAsFixed(2);
+      final sgst = order.calculateSGST(settings).toStringAsFixed(2);
+      final cgst = order.calculateCGST(settings).toStringAsFixed(2);
+      final totalTax = order.calculateTotalTax(settings).toStringAsFixed(2);
+      final total = order.getGrandTotal(settings).toStringAsFixed(2);
       final paymentMethod = order.payments.isNotEmpty ? 'Paid' : 'Pending';
       
       // Items detail with discount information
@@ -8964,7 +9069,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         return itemDetail;
       }).join('; ');
       
-      buffer.writeln('"$date","$time","$orderId","$customerName","$phone","$orderType","$status",$itemsCount,$itemsSubtotal,$itemDiscounts,$orderDiscount,$totalDiscounts,$subtotalAfterDiscounts,$tax,$total,"$paymentMethod","$itemsDetail"');
+      buffer.writeln('"$date","$time","$orderId","$customerName","$phone","$orderType","$status",$itemsCount,$itemsSubtotal,$itemDiscounts,$orderDiscount,$totalDiscounts,$subtotalAfterDiscounts,$sgst,$cgst,$totalTax,$total,"$paymentMethod","$itemsDetail"');
     }
     
     _showExportDialog(context, 'Complete Order Report', buffer.toString());
@@ -9430,6 +9535,24 @@ class SettingsScreen extends ConsumerWidget {
                           onTap: () => _showEditDialog(context, ref, l10n(ref, 'email'), settings.email, 
                               (value) => ref.read(settingsProvider.notifier).updateEmail(value)),
                         ),
+                        const Divider(),
+                        // Tax Settings
+                        ListTile(
+                          leading: const Icon(Icons.percent),
+                          title: Text(l10n(ref, 'sgst_rate')),
+                          subtitle: Text('${(settings.sgstRate * 100).toStringAsFixed(1)}%'),
+                          trailing: const Icon(Icons.edit),
+                          onTap: () => _showTaxDialog(context, ref, l10n(ref, 'sgst_rate'), settings.sgstRate * 100, 
+                              (value) => ref.read(settingsProvider.notifier).updateSgstRate(value / 100)),
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.percent),
+                          title: Text(l10n(ref, 'cgst_rate')),
+                          subtitle: Text('${(settings.cgstRate * 100).toStringAsFixed(1)}%'),
+                          trailing: const Icon(Icons.edit),
+                          onTap: () => _showTaxDialog(context, ref, l10n(ref, 'cgst_rate'), settings.cgstRate * 100, 
+                              (value) => ref.read(settingsProvider.notifier).updateCgstRate(value / 100)),
+                        ),
                       ],
                     ),
                   ),
@@ -9491,14 +9614,55 @@ class SettingsScreen extends ConsumerWidget {
                               ),
                             ),
                           ),
+                        ],
+                        const Divider(),
+                        SwitchListTile(
+                          secondary: const Icon(Icons.inventory),
+                          title: Text(l10n(ref, 'packaging_service')),
+                          subtitle: Text(l10n(ref, 'packaging_service_desc')),
+                          value: settings.packagingEnabled,
+                          activeColor: const Color(0xFFFF9933),
+                          onChanged: (bool value) {
+                            ref.read(settingsProvider.notifier).updateSettings(
+                              settings.copyWith(packagingEnabled: value),
+                            );
+                          },
+                        ),
+                        if (settings.packagingEnabled) ...[
                           ListTile(
-                            leading: const Icon(Icons.inventory),
+                            leading: const Icon(Icons.inventory_2),
                             title: const Text('Packaging Charge'),
                             subtitle: Text('${settings.currency}${settings.defaultPackagingCharge.toStringAsFixed(2)}'),
                             trailing: const Icon(Icons.edit),
                             onTap: () => _showChargeDialog(context, ref, 'Packaging Charge', settings.defaultPackagingCharge, 
                               (value) => ref.read(settingsProvider.notifier).updateSettings(
                                 settings.copyWith(defaultPackagingCharge: value),
+                              ),
+                            ),
+                          ),
+                        ],
+                        const Divider(),
+                        SwitchListTile(
+                          secondary: const Icon(Icons.room_service),
+                          title: Text(l10n(ref, 'service_charges')),
+                          subtitle: Text(l10n(ref, 'service_charges_desc')),
+                          value: settings.serviceEnabled,
+                          activeColor: const Color(0xFFFF9933),
+                          onChanged: (bool value) {
+                            ref.read(settingsProvider.notifier).updateSettings(
+                              settings.copyWith(serviceEnabled: value),
+                            );
+                          },
+                        ),
+                        if (settings.serviceEnabled) ...[
+                          ListTile(
+                            leading: const Icon(Icons.restaurant_menu),
+                            title: const Text('Service Charge'),
+                            subtitle: Text('${settings.currency}${settings.defaultServiceCharge.toStringAsFixed(2)} (Dine-in only)'),
+                            trailing: const Icon(Icons.edit),
+                            onTap: () => _showChargeDialog(context, ref, 'Service Charge', settings.defaultServiceCharge, 
+                              (value) => ref.read(settingsProvider.notifier).updateSettings(
+                                settings.copyWith(defaultServiceCharge: value),
                               ),
                             ),
                           ),
@@ -9710,9 +9874,9 @@ class SettingsScreen extends ConsumerWidget {
                         ListTile(
                           leading: const Icon(Icons.percent),
                           title: Text(l10n(ref, 'tax_rate')),
-                          subtitle: Text('${(settings.taxRate * 100).toInt()}% GST'),
+                          subtitle: Text('SGST: ${(settings.sgstRate * 100).toStringAsFixed(1)}% + CGST: ${(settings.cgstRate * 100).toStringAsFixed(1)}%'),
                           trailing: const Icon(Icons.edit),
-                          onTap: () => _showTaxRateDialog(context, ref, settings.taxRate),
+                          onTap: () => _showTaxRateDialog(context, ref, settings.totalTaxRate),
                         ),
                       ],
                     ),
@@ -9797,6 +9961,45 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
+  void _showTaxDialog(BuildContext context, WidgetRef ref, String title, double currentValue, Function(double) onUpdate) {
+    final controller = TextEditingController(text: currentValue.toStringAsFixed(1));
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Edit $title'),
+        content: TextField(
+          controller: controller,
+          decoration: InputDecoration(
+            labelText: '$title (%)',
+            border: const OutlineInputBorder(),
+            suffixText: '%',
+          ),
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final value = double.tryParse(controller.text) ?? currentValue;
+              if (value >= 0 && value <= 50) { // Reasonable tax rate limits
+                onUpdate(value);
+                Navigator.pop(context);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Please enter a tax rate between 0% and 50%')),
+                );
+              }
+            },
+            child: const Text('Update'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showCurrencySelector(BuildContext context, WidgetRef ref) {
     final currencies = [
       {'symbol': '₹', 'name': 'Indian Rupee'},
@@ -9865,7 +10068,10 @@ class SettingsScreen extends ConsumerWidget {
             onPressed: () {
               final rate = double.tryParse(controller.text);
               if (rate != null && rate >= 0 && rate <= 100) {
-                ref.read(settingsProvider.notifier).updateTaxRate(rate / 100);
+                final totalRate = rate / 100;
+                final halfRate = totalRate / 2;
+                ref.read(settingsProvider.notifier).updateSgstRate(halfRate);
+                ref.read(settingsProvider.notifier).updateCgstRate(halfRate);
                 Navigator.pop(context);
               }
             },
