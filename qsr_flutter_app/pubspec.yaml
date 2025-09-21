@@ -20,6 +20,11 @@ dependencies:
   shared_preferences: ^2.2.2
   sqflite: ^2.3.0
   
+  # Google Services
+  google_sign_in: ^6.1.5
+  googleapis: ^11.4.0
+  googleapis_auth: ^1.4.1
+  
   # Bluetooth & Printing
   # flutter_bluetooth_serial: ^0.4.0  # Temporarily disabled for Android compatibility
   esc_pos_utils: ^1.1.0
@@ -38,6 +43,7 @@ dependencies:
   # Network & Connectivity
   connectivity_plus: ^5.0.1
   url_launcher: ^6.2.1
+  http: ^1.1.0
 
 dev_dependencies:
   flutter_test:

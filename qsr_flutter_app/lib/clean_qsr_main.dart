@@ -3,10 +3,34 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'dart:async';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'kot_screen.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:googleapis/drive/v3.dart' as drive;
+import 'package:googleapis_auth/auth_io.dart';
+import 'package:http/http.dart' as http;
+
+// Google Auth Client for Google Drive API
+class GoogleAuthClient extends http.BaseClient {
+  final Map<String, String> _headers;
+  final http.Client _client = http.Client();
+
+  GoogleAuthClient(this._headers);
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    request.headers.addAll(_headers);
+    return _client.send(request);
+  }
+
+  @override
+  void close() {
+    _client.close();
+  }
+}
 
 // Multi-language Support
 class AppLocalizations {
@@ -371,6 +395,729 @@ String formatIndianCurrency(String currency, double amount) {
 // Helper function for date time formatting
 String formatDateTime(DateTime dateTime) {
   return '${dateTime.day.toString().padLeft(2, '0')}/${dateTime.month.toString().padLeft(2, '0')}/${dateTime.year} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+}
+
+// Local Storage Service for data persistence
+class LocalStorageService {
+  static const String _ordersKey = 'qsr_orders';
+  static const String _settingsKey = 'qsr_settings';
+  static const String _customerDataKey = 'qsr_customer_data';
+  static const String _paymentHistoryKey = 'qsr_payment_history';
+  static const String _paymentConfigKey = 'qsr_payment_config';
+  static const String _menuItemsKey = 'qsr_menu_items';
+  
+  static SharedPreferences? _prefs;
+  
+  static Future<void> _initPrefs() async {
+    _prefs ??= await SharedPreferences.getInstance();
+  }
+  
+  // Orders Storage
+  static Future<void> saveOrders(List<Order> orders) async {
+    await _initPrefs();
+    final orderJsonList = orders.map((order) => _orderToJson(order)).toList();
+    await _prefs!.setString(_ordersKey, jsonEncode(orderJsonList));
+  }
+  
+  static Future<List<Order>> loadOrders() async {
+    await _initPrefs();
+    final ordersJson = _prefs!.getString(_ordersKey);
+    if (ordersJson == null) return [];
+    
+    try {
+      final List<dynamic> ordersList = jsonDecode(ordersJson);
+      return ordersList.map((json) => _orderFromJson(json)).toList();
+    } catch (e) {
+      print('Error loading orders: $e');
+      return [];
+    }
+  }
+  
+  // Settings Storage
+  static Future<void> saveSettings(AppSettings settings) async {
+    await _initPrefs();
+    await _prefs!.setString(_settingsKey, jsonEncode(_settingsToJson(settings)));
+  }
+  
+  static Future<AppSettings> loadSettings() async {
+    await _initPrefs();
+    final settingsJson = _prefs!.getString(_settingsKey);
+    if (settingsJson == null) return AppSettings();
+    
+    try {
+      final Map<String, dynamic> settingsMap = jsonDecode(settingsJson);
+      return _settingsFromJson(settingsMap);
+    } catch (e) {
+      print('Error loading settings: $e');
+      return AppSettings();
+    }
+  }
+  
+  // Customer Data Storage
+  static Future<void> saveCustomerData(Map<String, CustomerData> customerData) async {
+    await _initPrefs();
+    final customerJsonMap = customerData.map((key, customer) => 
+      MapEntry(key, _customerDataToJson(customer)));
+    await _prefs!.setString(_customerDataKey, jsonEncode(customerJsonMap));
+  }
+  
+  static Future<Map<String, CustomerData>> loadCustomerData() async {
+    await _initPrefs();
+    final customerDataJson = _prefs!.getString(_customerDataKey);
+    if (customerDataJson == null) return {};
+    
+    try {
+      final Map<String, dynamic> customerDataMap = jsonDecode(customerDataJson);
+      return customerDataMap.map((key, json) => 
+        MapEntry(key, _customerDataFromJson(json)));
+    } catch (e) {
+      print('Error loading customer data: $e');
+      return {};
+    }
+  }
+  
+  // Payment History Storage
+  static Future<void> savePaymentHistory(List<PaymentEntry> paymentHistory) async {
+    await _initPrefs();
+    final paymentJsonList = paymentHistory.map((payment) => _paymentEntryToJson(payment)).toList();
+    await _prefs!.setString(_paymentHistoryKey, jsonEncode(paymentJsonList));
+  }
+  
+  static Future<List<PaymentEntry>> loadPaymentHistory() async {
+    await _initPrefs();
+    final paymentHistoryJson = _prefs!.getString(_paymentHistoryKey);
+    if (paymentHistoryJson == null) return [];
+    
+    try {
+      final List<dynamic> paymentsList = jsonDecode(paymentHistoryJson);
+      return paymentsList.map((json) => _paymentEntryFromJson(json)).toList();
+    } catch (e) {
+      print('Error loading payment history: $e');
+      return [];
+    }
+  }
+  
+  // Payment Config Storage
+  static Future<void> savePaymentConfig(PaymentSystemConfig config) async {
+    await _initPrefs();
+    await _prefs!.setString(_paymentConfigKey, jsonEncode(config.toJson()));
+  }
+  
+  static Future<PaymentSystemConfig> loadPaymentConfig() async {
+    await _initPrefs();
+    final configJson = _prefs!.getString(_paymentConfigKey);
+    if (configJson == null) return PaymentSystemConfig();
+    
+    try {
+      final Map<String, dynamic> configMap = jsonDecode(configJson);
+      return PaymentSystemConfig.fromJson(configMap);
+    } catch (e) {
+      print('Error loading payment config: $e');
+      return PaymentSystemConfig();
+    }
+  }
+  
+  // Menu Items Storage
+  static Future<void> saveMenuItems(List<MenuItem> menuItems) async {
+    await _initPrefs();
+    final menuJsonList = menuItems.map((item) => item.toJson()).toList();
+    await _prefs!.setString(_menuItemsKey, jsonEncode(menuJsonList));
+  }
+  
+  static Future<List<MenuItem>> loadMenuItems() async {
+    await _initPrefs();
+    final menuItemsJson = _prefs!.getString(_menuItemsKey);
+    if (menuItemsJson == null) return [];
+    
+    try {
+      final List<dynamic> menuList = jsonDecode(menuItemsJson);
+      return menuList.map((json) => MenuItem.fromJson(json)).toList();
+    } catch (e) {
+      print('Error loading menu items: $e');
+      return [];
+    }
+  }
+  
+  // Clear all data
+  static Future<void> clearAllData() async {
+    await _initPrefs();
+    await _prefs!.clear();
+  }
+  
+  // JSON Serialization Helpers
+  static Map<String, dynamic> _orderToJson(Order order) {
+    return {
+      'id': order.id,
+      'items': order.items.map((item) => _orderItemToJson(item)).toList(),
+      'createdAt': order.createdAt.millisecondsSinceEpoch,
+      'type': order.type.index,
+      'status': order.status.index,
+      'notes': order.notes,
+      'customer': order.customer != null ? _customerInfoToJson(order.customer!) : null,
+      'charges': _orderChargesToJson(order.charges),
+      'payments': order.payments.map((payment) => _paymentToJson(payment)).toList(),
+      'paymentStatus': order.paymentStatus.index,
+      'kotPrinted': order.kotPrinted,
+      'orderDiscount': order.orderDiscount != null ? _orderDiscountToJson(order.orderDiscount!) : null,
+    };
+  }
+  
+  static Order _orderFromJson(Map<String, dynamic> json) {
+    return Order(
+      id: json['id'],
+      items: (json['items'] as List).map((item) => _orderItemFromJson(item)).toList(),
+      createdAt: DateTime.fromMillisecondsSinceEpoch(json['createdAt']),
+      type: OrderType.values[json['type']],
+      status: OrderStatus.values[json['status']],
+      notes: json['notes'],
+      customer: json['customer'] != null ? _customerInfoFromJson(json['customer']) : null,
+      charges: _orderChargesFromJson(json['charges']),
+      payments: (json['payments'] as List).map((payment) => _paymentFromJson(payment)).toList(),
+      paymentStatus: PaymentStatus.values[json['paymentStatus']],
+      kotPrinted: json['kotPrinted'] ?? false,
+      orderDiscount: json['orderDiscount'] != null ? _orderDiscountFromJson(json['orderDiscount']) : null,
+    );
+  }
+  
+  static Map<String, dynamic> _orderItemToJson(OrderItem item) {
+    return {
+      'menuItem': item.menuItem.toJson(),
+      'quantity': item.quantity,
+      'orderType': item.orderType.index,
+      'selectedAddons': item.selectedAddons.map((addon) => _addonToJson(addon)).toList(),
+      'specialInstructions': item.specialInstructions,
+      'discount': item.discount != null ? _itemDiscountToJson(item.discount!) : null,
+    };
+  }
+  
+  static OrderItem _orderItemFromJson(Map<String, dynamic> json) {
+    return OrderItem(
+      menuItem: MenuItem.fromJson(json['menuItem']),
+      quantity: json['quantity'],
+      orderType: OrderType.values[json['orderType']],
+      selectedAddons: (json['selectedAddons'] as List? ?? []).map((addon) => _addonFromJson(addon)).toList(),
+      specialInstructions: json['specialInstructions'],
+      discount: json['discount'] != null ? _itemDiscountFromJson(json['discount']) : null,
+    );
+  }
+  
+  static Map<String, dynamic> _addonToJson(Addon addon) {
+    return {
+      'id': addon.id,
+      'name': addon.name,
+      'price': addon.price,
+      'isRequired': addon.isRequired,
+    };
+  }
+  
+  static Addon _addonFromJson(Map<String, dynamic> json) {
+    return Addon(
+      id: json['id'],
+      name: json['name'],
+      price: json['price'],
+      isRequired: json['isRequired'] ?? false,
+    );
+  }
+  
+  static Map<String, dynamic> _customerInfoToJson(CustomerInfo customer) {
+    return {
+      'name': customer.name,
+      'phone': customer.phone,
+      'email': customer.email,
+      'address': customer.address,
+    };
+  }
+  
+  static CustomerInfo _customerInfoFromJson(Map<String, dynamic> json) {
+    return CustomerInfo(
+      name: json['name'],
+      phone: json['phone'],
+      email: json['email'],
+      address: json['address'],
+    );
+  }
+  
+  static Map<String, dynamic> _orderChargesToJson(OrderCharges charges) {
+    return {
+      'deliveryCharge': charges.deliveryCharge,
+      'packagingCharge': charges.packagingCharge,
+      'serviceCharge': charges.serviceCharge,
+    };
+  }
+  
+  static OrderCharges _orderChargesFromJson(Map<String, dynamic> json) {
+    return OrderCharges(
+      deliveryCharge: json['deliveryCharge'] ?? 0.0,
+      packagingCharge: json['packagingCharge'] ?? 0.0,
+      serviceCharge: json['serviceCharge'] ?? 0.0,
+    );
+  }
+  
+  static Map<String, dynamic> _paymentToJson(Payment payment) {
+    return {
+      'method': payment.method.index,
+      'amount': payment.amount,
+      'timestamp': payment.timestamp.millisecondsSinceEpoch,
+      'transactionId': payment.transactionId,
+    };
+  }
+  
+  static Payment _paymentFromJson(Map<String, dynamic> json) {
+    return Payment(
+      method: PaymentMethod.values[json['method']],
+      amount: json['amount'],
+      timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp']),
+      transactionId: json['transactionId'],
+    );
+  }
+  
+  static Map<String, dynamic> _itemDiscountToJson(ItemDiscount discount) {
+    return {
+      'type': discount.type.index,
+      'value': discount.value,
+      'reason': discount.reason,
+    };
+  }
+  
+  static ItemDiscount _itemDiscountFromJson(Map<String, dynamic> json) {
+    return ItemDiscount(
+      type: DiscountType.values[json['type']],
+      value: json['value'],
+      reason: json['reason'],
+    );
+  }
+  
+  static Map<String, dynamic> _orderDiscountToJson(OrderDiscount discount) {
+    return {
+      'type': discount.type.index,
+      'value': discount.value,
+      'reason': discount.reason,
+      'applyToSubtotal': discount.applyToSubtotal,
+    };
+  }
+  
+  static OrderDiscount _orderDiscountFromJson(Map<String, dynamic> json) {
+    return OrderDiscount(
+      type: DiscountType.values[json['type']],
+      value: json['value'],
+      reason: json['reason'],
+      applyToSubtotal: json['applyToSubtotal'] ?? true,
+    );
+  }
+  
+  static Map<String, dynamic> _settingsToJson(AppSettings settings) {
+    return {
+      'currency': settings.currency,
+      'sgstRate': settings.sgstRate,
+      'cgstRate': settings.cgstRate,
+      'businessName': settings.businessName,
+      'address': settings.address,
+      'phone': settings.phone,
+      'email': settings.email,
+      'kotEnabled': settings.kotEnabled,
+      'defaultLanguage': settings.defaultLanguage,
+      'deliveryEnabled': settings.deliveryEnabled,
+      'packagingEnabled': settings.packagingEnabled,
+      'serviceEnabled': settings.serviceEnabled,
+      'defaultDeliveryCharge': settings.defaultDeliveryCharge,
+      'defaultPackagingCharge': settings.defaultPackagingCharge,
+      'defaultServiceCharge': settings.defaultServiceCharge,
+    };
+  }
+  
+  static AppSettings _settingsFromJson(Map<String, dynamic> json) {
+    return AppSettings(
+      currency: json['currency'] ?? '₹',
+      sgstRate: json['sgstRate'] ?? 0.09,
+      cgstRate: json['cgstRate'] ?? 0.09,
+      businessName: json['businessName'] ?? 'My Restaurant',
+      address: json['address'] ?? '',
+      phone: json['phone'] ?? '',
+      email: json['email'] ?? '',
+      kotEnabled: json['kotEnabled'] ?? false,
+      defaultLanguage: json['defaultLanguage'] ?? 'en',
+      deliveryEnabled: json['deliveryEnabled'] ?? true,
+      packagingEnabled: json['packagingEnabled'] ?? true,
+      serviceEnabled: json['serviceEnabled'] ?? true,
+      defaultDeliveryCharge: json['defaultDeliveryCharge'] ?? 50.0,
+      defaultPackagingCharge: json['defaultPackagingCharge'] ?? 10.0,
+      defaultServiceCharge: json['defaultServiceCharge'] ?? 20.0,
+    );
+  }
+  
+  static Map<String, dynamic> _customerDataToJson(CustomerData customer) {
+    return {
+      'name': customer.name,
+      'phone': customer.phone,
+      'email': customer.email,
+      'address': customer.address,
+      'firstOrderDate': customer.firstOrderDate.millisecondsSinceEpoch,
+      'lastOrderDate': customer.lastOrderDate.millisecondsSinceEpoch,
+      'totalOrders': customer.totalOrders,
+      'totalSpent': customer.totalSpent,
+      'mostUsedOrderType': customer.mostUsedOrderType.index,
+      'orderIds': customer.orderIds,
+    };
+  }
+  
+  static CustomerData _customerDataFromJson(Map<String, dynamic> json) {
+    return CustomerData(
+      name: json['name'],
+      phone: json['phone'],
+      email: json['email'],
+      address: json['address'],
+      firstOrderDate: DateTime.fromMillisecondsSinceEpoch(json['firstOrderDate']),
+      lastOrderDate: DateTime.fromMillisecondsSinceEpoch(json['lastOrderDate']),
+      totalOrders: json['totalOrders'],
+      totalSpent: json['totalSpent'],
+      mostUsedOrderType: OrderType.values[json['mostUsedOrderType']],
+      orderIds: List<String>.from(json['orderIds'] ?? []),
+    );
+  }
+  
+  static Map<String, dynamic> _paymentEntryToJson(PaymentEntry payment) {
+    return {
+      'methodId': payment.methodId,
+      'methodName': payment.methodName,
+      'method': payment.method.index,
+      'amount': payment.amount,
+      'timestamp': payment.timestamp.millisecondsSinceEpoch,
+      'orderId': payment.orderId,
+      'transactionId': payment.transactionId,
+    };
+  }
+  
+  static PaymentEntry _paymentEntryFromJson(Map<String, dynamic> json) {
+    return PaymentEntry(
+      methodId: json['methodId'],
+      methodName: json['methodName'],
+      method: PaymentMethodType.values[json['method']],
+      amount: json['amount'],
+      timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp']),
+      orderId: json['orderId'],
+      transactionId: json['transactionId'],
+    );
+  }
+}
+
+// Google Drive Service for cloud backup
+class GoogleDriveService {
+  static const List<String> _scopes = [
+    drive.DriveApi.driveFileScope,
+  ];
+  
+  static GoogleSignIn? _googleSignIn;
+  static drive.DriveApi? _driveApi;
+  static bool _isInitialized = false;
+  
+  static Future<void> _initialize() async {
+    if (_isInitialized) return;
+    
+    _googleSignIn = GoogleSignIn(
+      scopes: _scopes,
+      // For web, you would need to configure the client ID in web/index.html
+      // <meta name="google-signin-client_id" content="YOUR_CLIENT_ID.apps.googleusercontent.com">
+    );
+    _isInitialized = true;
+  }
+  
+  static Future<bool> signIn() async {
+    await _initialize();
+    
+    try {
+      final GoogleSignInAccount? account = await _googleSignIn!.signIn();
+      if (account == null) return false;
+      
+      final GoogleSignInAuthentication auth = await account.authentication;
+      final authHeaders = await account.authHeaders;
+      final authenticatedClient = GoogleAuthClient(authHeaders);
+      
+      _driveApi = drive.DriveApi(authenticatedClient);
+      return true;
+    } catch (e) {
+      print('Google Sign-In error: $e');
+      // For web apps, you need to configure Google Client ID in web/index.html
+      // Add this meta tag: <meta name="google-signin-client_id" content="YOUR_CLIENT_ID.apps.googleusercontent.com">
+      return false;
+    }
+  }
+  
+  static Future<void> signOut() async {
+    await _googleSignIn?.signOut();
+    _driveApi = null;
+  }
+  
+  static bool get isSignedIn => _driveApi != null;
+  
+  static Future<String?> getCurrentUserEmail() async {
+    if (_googleSignIn?.currentUser != null) {
+      return _googleSignIn!.currentUser!.email;
+    }
+    return null;
+  }
+  
+  static Future<bool> syncDataToGoogleDrive({
+    required String businessName,
+    Function(String)? onProgress,
+  }) async {
+    if (_driveApi == null) {
+      throw Exception('Not signed in to Google Drive');
+    }
+    
+    try {
+      onProgress?.call('Loading local data...');
+      
+      // Load all data from local storage
+      final orders = await LocalStorageService.loadOrders();
+      final settings = await LocalStorageService.loadSettings();
+      final customerData = await LocalStorageService.loadCustomerData();
+      final paymentHistory = await LocalStorageService.loadPaymentHistory();
+      final paymentConfig = await LocalStorageService.loadPaymentConfig();
+      final menuItems = await LocalStorageService.loadMenuItems();
+      
+      // Organize data by date
+      final Map<String, List<Order>> ordersByDate = {};
+      for (final order in orders) {
+        final dateKey = '${order.createdAt.year}-${order.createdAt.month.toString().padLeft(2, '0')}-${order.createdAt.day.toString().padLeft(2, '0')}';
+        ordersByDate[dateKey] ??= [];
+        ordersByDate[dateKey]!.add(order);
+      }
+      
+      // Create main QSR backup folder
+      onProgress?.call('Creating backup folder...');
+      final mainFolderId = await _createOrGetFolder('QSR-${businessName.replaceAll(' ', '-')}-Backup');
+      
+      // Create today's folder
+      final today = DateTime.now();
+      final todayFolder = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+      final todayFolderId = await _createOrGetFolder(todayFolder, mainFolderId);
+      
+      onProgress?.call('Backing up settings...');
+      
+      // Backup settings
+      await _uploadJsonFile(
+        'settings.json',
+        LocalStorageService._settingsToJson(settings),
+        todayFolderId,
+      );
+      
+      onProgress?.call('Backing up customer data...');
+      
+      // Backup customer data
+      final customerJsonMap = customerData.map((key, customer) => 
+        MapEntry(key, LocalStorageService._customerDataToJson(customer)));
+      await _uploadJsonFile(
+        'customers.json',
+        customerJsonMap,
+        todayFolderId,
+      );
+      
+      onProgress?.call('Backing up payment history...');
+      
+      // Backup payment history
+      final paymentJsonList = paymentHistory.map((payment) => 
+        LocalStorageService._paymentEntryToJson(payment)).toList();
+      await _uploadJsonFile(
+        'payment_history.json',
+        paymentJsonList,
+        todayFolderId,
+      );
+      
+      onProgress?.call('Backing up payment config...');
+      
+      // Backup payment config
+      await _uploadJsonFile(
+        'payment_config.json',
+        paymentConfig.toJson(),
+        todayFolderId,
+      );
+      
+      onProgress?.call('Backing up menu items...');
+      
+      // Backup menu items
+      final menuJsonList = menuItems.map((item) => item.toJson()).toList();
+      await _uploadJsonFile(
+        'menu_items.json',
+        menuJsonList,
+        todayFolderId,
+      );
+      
+      onProgress?.call('Backing up orders...');
+      
+      // Backup orders (day-wise)
+      int dayCount = 0;
+      for (final entry in ordersByDate.entries) {
+        dayCount++;
+        final dateKey = entry.key;
+        final dayOrders = entry.value;
+        
+        onProgress?.call('Backing up orders for $dateKey... ($dayCount/${ordersByDate.length})');
+        
+        final dayOrdersJson = dayOrders.map((order) => 
+          LocalStorageService._orderToJson(order)).toList();
+        
+        await _uploadJsonFile(
+          'orders_$dateKey.json',
+          dayOrdersJson,
+          todayFolderId,
+        );
+      }
+      
+      onProgress?.call('Creating backup summary...');
+      
+      // Create backup summary
+      final backupSummary = {
+        'backup_date': DateTime.now().toIso8601String(),
+        'business_name': businessName,
+        'total_orders': orders.length,
+        'total_customers': customerData.length,
+        'total_payments': paymentHistory.length,
+        'menu_items_count': menuItems.length,
+        'date_range': {
+          'start': orders.isNotEmpty ? orders.map((o) => o.createdAt).reduce((a, b) => a.isBefore(b) ? a : b).toIso8601String() : null,
+          'end': orders.isNotEmpty ? orders.map((o) => o.createdAt).reduce((a, b) => a.isAfter(b) ? a : b).toIso8601String() : null,
+        },
+        'total_revenue': orders.fold(0.0, (sum, order) => sum + order.getGrandTotal(settings)),
+        'backup_files': [
+          'settings.json',
+          'customers.json',
+          'payment_history.json',
+          'payment_config.json',
+          'menu_items.json',
+        ]..addAll(ordersByDate.keys.map((date) => 'orders_$date.json')),
+      };
+      
+      await _uploadJsonFile(
+        'backup_summary.json',
+        backupSummary,
+        todayFolderId,
+      );
+      
+      onProgress?.call('Backup completed successfully!');
+      return true;
+      
+    } catch (e) {
+      print('Google Drive sync error: $e');
+      onProgress?.call('Backup failed: $e');
+      return false;
+    }
+  }
+  
+  static Future<String> _createOrGetFolder(String folderName, [String? parentId]) async {
+    // Search for existing folder
+    final query = parentId != null 
+        ? "name='$folderName' and parents in '$parentId' and mimeType='application/vnd.google-apps.folder'"
+        : "name='$folderName' and mimeType='application/vnd.google-apps.folder'";
+        
+    final fileList = await _driveApi!.files.list(q: query);
+    
+    if (fileList.files != null && fileList.files!.isNotEmpty) {
+      return fileList.files!.first.id!;
+    }
+    
+    // Create new folder
+    final folder = drive.File()
+      ..name = folderName
+      ..mimeType = 'application/vnd.google-apps.folder';
+      
+    if (parentId != null) {
+      folder.parents = [parentId];
+    }
+    
+    final createdFolder = await _driveApi!.files.create(folder);
+    return createdFolder.id!;
+  }
+  
+  static Future<void> _uploadJsonFile(String fileName, dynamic jsonData, String folderId) async {
+    final jsonString = jsonEncode(jsonData);
+    final bytes = utf8.encode(jsonString);
+    
+    // Check if file already exists
+    final query = "name='$fileName' and parents in '$folderId'";
+    final existingFiles = await _driveApi!.files.list(q: query);
+    
+    final file = drive.File()
+      ..name = fileName
+      ..parents = [folderId];
+    
+    final media = drive.Media(Stream.fromIterable([bytes]), bytes.length, contentType: 'application/json');
+    
+    if (existingFiles.files != null && existingFiles.files!.isNotEmpty) {
+      // Update existing file
+      await _driveApi!.files.update(file, existingFiles.files!.first.id!, uploadMedia: media);
+    } else {
+      // Create new file
+      await _driveApi!.files.create(file, uploadMedia: media);
+    }
+  }
+  
+  static Future<List<String>> listBackupFolders() async {
+    if (_driveApi == null) return [];
+    
+    try {
+      final query = "name contains 'QSR-' and name contains '-Backup' and mimeType='application/vnd.google-apps.folder'";
+      final fileList = await _driveApi!.files.list(q: query);
+      
+      return fileList.files?.map((file) => file.name ?? '').toList() ?? [];
+    } catch (e) {
+      print('Error listing backup folders: $e');
+      return [];
+    }
+  }
+  
+  static Future<Map<String, dynamic>?> getBackupSummary(String backupFolderName) async {
+    if (_driveApi == null) return null;
+    
+    try {
+      // Find the backup folder
+      final folderQuery = "name='$backupFolderName' and mimeType='application/vnd.google-apps.folder'";
+      final folderList = await _driveApi!.files.list(q: folderQuery);
+      
+      if (folderList.files == null || folderList.files!.isEmpty) return null;
+      
+      final folderId = folderList.files!.first.id!;
+      
+      // Find today's folder or latest folder
+      final today = DateTime.now();
+      final todayFolder = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+      
+      final subFolderQuery = "parents in '$folderId' and mimeType='application/vnd.google-apps.folder'";
+      final subFolderList = await _driveApi!.files.list(q: subFolderQuery);
+      
+      if (subFolderList.files == null || subFolderList.files!.isEmpty) return null;
+      
+      // Find today's folder or get the most recent one
+      String? targetFolderId;
+      for (final folder in subFolderList.files!) {
+        if (folder.name == todayFolder) {
+          targetFolderId = folder.id;
+          break;
+        }
+      }
+      
+      // If today's folder not found, get the most recent one
+      targetFolderId ??= subFolderList.files!.first.id;
+      
+      // Get backup summary file
+      final summaryQuery = "name='backup_summary.json' and parents in '$targetFolderId'";
+      final summaryList = await _driveApi!.files.list(q: summaryQuery);
+      
+      if (summaryList.files == null || summaryList.files!.isEmpty) return null;
+      
+      final summaryFile = await _driveApi!.files.get(summaryList.files!.first.id!, downloadOptions: drive.DownloadOptions.fullMedia);
+      
+      if (summaryFile is drive.Media) {
+        final bytes = await summaryFile.stream.fold<List<int>>(<int>[], (previous, element) => previous..addAll(element));
+        final jsonString = utf8.decode(bytes);
+        return jsonDecode(jsonString);
+      }
+      
+      return null;
+    } catch (e) {
+      print('Error getting backup summary: $e');
+      return null;
+    }
+  }
 }
 
 // WhatsApp Service for Bill Sharing
@@ -2252,7 +2999,9 @@ String l10n(WidgetRef ref, String key) {
 
 // State Notifiers
 class MenuNotifier extends StateNotifier<List<MenuItem>> {
-  MenuNotifier() : super(_defaultMenuItems);
+  MenuNotifier() : super([]) {
+    _loadMenuItems();
+  }
 
   static final List<MenuItem> _defaultMenuItems = [
     MenuItem(id: '1', name: 'Margherita Pizza', dineInPrice: 299, takeawayPrice: 279, deliveryPrice: 319, category: 'Pizza'),
@@ -2264,18 +3013,36 @@ class MenuNotifier extends StateNotifier<List<MenuItem>> {
     MenuItem(id: '7', name: 'Masala Dosa', dineInPrice: 129, takeawayPrice: 119, deliveryPrice: 139, category: 'South Indian'),
   ];
 
+  Future<void> _loadMenuItems() async {
+    final loadedItems = await LocalStorageService.loadMenuItems();
+    if (loadedItems.isEmpty) {
+      // If no saved items, use default items
+      state = _defaultMenuItems;
+      await _saveMenuItems();
+    } else {
+      state = loadedItems;
+    }
+  }
+
+  Future<void> _saveMenuItems() async {
+    await LocalStorageService.saveMenuItems(state);
+  }
+
   void addMenuItem(MenuItem item) {
     state = [...state, item];
+    _saveMenuItems();
   }
 
   void updateMenuItem(MenuItem updatedItem) {
     state = state.map((item) => 
       item.id == updatedItem.id ? updatedItem : item
     ).toList();
+    _saveMenuItems();
   }
 
   void removeMenuItem(String id) {
     state = state.where((item) => item.id != id).toList();
+    _saveMenuItems();
   }
 }
 
@@ -2363,10 +3130,22 @@ class CurrentOrderNotifier extends StateNotifier<List<OrderItem>> {
 }
 
 class OrdersNotifier extends StateNotifier<List<Order>> {
-  OrdersNotifier() : super([]);
+  OrdersNotifier() : super([]) {
+    _loadOrders();
+  }
+
+  Future<void> _loadOrders() async {
+    final loadedOrders = await LocalStorageService.loadOrders();
+    state = loadedOrders;
+  }
+
+  Future<void> _saveOrders() async {
+    await LocalStorageService.saveOrders(state);
+  }
 
   void addOrder(Order order) {
     state = [order, ...state];
+    _saveOrders();
   }
 
   void updateOrderStatus(String orderId, OrderStatus status) {
@@ -2375,77 +3154,115 @@ class OrdersNotifier extends StateNotifier<List<Order>> {
         ? order.copyWith(status: status)
         : order
     ).toList();
+    _saveOrders();
   }
 
   void updateOrder(Order updatedOrder) {
     state = state.map((order) => 
       order.id == updatedOrder.id ? updatedOrder : order
     ).toList();
+    _saveOrders();
   }
 }
 
 class SettingsNotifier extends StateNotifier<AppSettings> {
-  SettingsNotifier() : super(AppSettings());
+  SettingsNotifier() : super(AppSettings()) {
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final loadedSettings = await LocalStorageService.loadSettings();
+    state = loadedSettings;
+  }
+
+  Future<void> _saveSettings() async {
+    await LocalStorageService.saveSettings(state);
+  }
 
   void updateCurrency(String currency) {
     state = state.copyWith(currency: currency);
+    _saveSettings();
   }
 
   void updateSgstRate(double sgstRate) {
     state = state.copyWith(sgstRate: sgstRate);
+    _saveSettings();
   }
 
   void updateCgstRate(double cgstRate) {
     state = state.copyWith(cgstRate: cgstRate);
+    _saveSettings();
   }
 
   void updateBusinessName(String businessName) {
     state = state.copyWith(businessName: businessName);
+    _saveSettings();
   }
 
   void updateAddress(String address) {
     state = state.copyWith(address: address);
+    _saveSettings();
   }
 
   void updatePhone(String phone) {
     state = state.copyWith(phone: phone);
+    _saveSettings();
   }
 
   void updateEmail(String email) {
     state = state.copyWith(email: email);
+    _saveSettings();
   }
   
   void updateDeliveryEnabled(bool enabled) {
     state = state.copyWith(deliveryEnabled: enabled);
+    _saveSettings();
   }
   
   void updatePackagingEnabled(bool enabled) {
     state = state.copyWith(packagingEnabled: enabled);
+    _saveSettings();
   }
   
   void updateServiceEnabled(bool enabled) {
     state = state.copyWith(serviceEnabled: enabled);
+    _saveSettings();
   }
   
   void updateDefaultDeliveryCharge(double charge) {
     state = state.copyWith(defaultDeliveryCharge: charge);
+    _saveSettings();
   }
   
   void updateDefaultPackagingCharge(double charge) {
     state = state.copyWith(defaultPackagingCharge: charge);
+    _saveSettings();
   }
   
   void updateDefaultServiceCharge(double charge) {
     state = state.copyWith(defaultServiceCharge: charge);
+    _saveSettings();
   }
 
   void updateSettings(AppSettings newSettings) {
     state = newSettings;
+    _saveSettings();
   }
 }
 
 class CustomerDataNotifier extends StateNotifier<Map<String, CustomerData>> {
-  CustomerDataNotifier() : super({});
+  CustomerDataNotifier() : super({}) {
+    _loadCustomerData();
+  }
+
+  Future<void> _loadCustomerData() async {
+    final loadedData = await LocalStorageService.loadCustomerData();
+    state = loadedData;
+  }
+
+  Future<void> _saveCustomerData() async {
+    await LocalStorageService.saveCustomerData(state);
+  }
 
   void addOrUpdateCustomerFromOrder(Order order) {
     // Skip if no customer info
@@ -2471,6 +3288,7 @@ class CustomerDataNotifier extends StateNotifier<Map<String, CustomerData>> {
         customerKey: currentData.updateWithOrder(order),
       };
     }
+    _saveCustomerData();
   }
 
   List<CustomerData> get sortedCustomers {
@@ -2502,21 +3320,12 @@ class PaymentConfigNotifier extends StateNotifier<PaymentSystemConfig> {
   }
 
   Future<void> _loadConfig() async {
-    final prefs = await SharedPreferences.getInstance();
-    final configJson = prefs.getString('payment_system_config');
-    if (configJson != null) {
-      try {
-        final Map<String, dynamic> configMap = jsonDecode(configJson);
-        state = PaymentSystemConfig.fromJson(configMap);
-      } catch (e) {
-        print('Error loading payment config: $e');
-      }
-    }
+    final loadedConfig = await LocalStorageService.loadPaymentConfig();
+    state = loadedConfig;
   }
 
   Future<void> _saveConfig() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('payment_system_config', jsonEncode(state.toJson()));
+    await LocalStorageService.savePaymentConfig(state);
   }
 
   Future<void> enablePaymentMethod(PaymentMethodType method) async {
@@ -2607,22 +3416,12 @@ class PaymentHistoryNotifier extends StateNotifier<List<PaymentEntry>> {
   }
 
   Future<void> _loadHistory() async {
-    final prefs = await SharedPreferences.getInstance();
-    final historyJson = prefs.getString('payment_history');
-    if (historyJson != null) {
-      try {
-        final List<dynamic> historyList = jsonDecode(historyJson);
-        state = historyList.map((json) => PaymentEntry.fromJson(json)).toList();
-      } catch (e) {
-        print('Error loading payment history: $e');
-      }
-    }
+    final loadedHistory = await LocalStorageService.loadPaymentHistory();
+    state = loadedHistory;
   }
 
   Future<void> _saveHistory() async {
-    final prefs = await SharedPreferences.getInstance();
-    final historyJson = jsonEncode(state.map((entry) => entry.toJson()).toList());
-    await prefs.setString('payment_history', historyJson);
+    await LocalStorageService.savePaymentHistory(state);
   }
 
   Future<void> addPaymentEntry(PaymentEntry entry) async {
@@ -9675,6 +10474,142 @@ class SettingsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 16),
 
+            // Google Drive Backup Card (Collapsible)
+            Card(
+              child: ExpansionTile(
+                leading: const Icon(Icons.cloud_upload, color: Color(0xFFFF9933)),
+                title: const Text('Cloud Backup', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        Consumer(
+                          builder: (context, ref, child) {
+                            return FutureBuilder<String?>(
+                              future: GoogleDriveService.getCurrentUserEmail(),
+                              builder: (context, snapshot) {
+                                final userEmail = snapshot.data;
+                                final isSignedIn = GoogleDriveService.isSignedIn && userEmail != null;
+                                
+                                return Column(
+                                  children: [
+                                    ListTile(
+                                      leading: Icon(
+                                        isSignedIn ? Icons.cloud_done : Icons.cloud_off,
+                                        color: isSignedIn ? Colors.green : Colors.grey,
+                                      ),
+                                      title: Text(isSignedIn ? 'Connected to Google Drive' : 'Not Connected'),
+                                      subtitle: Text(isSignedIn ? userEmail : 'Sign in to enable cloud backup'),
+                                      trailing: isSignedIn 
+                                        ? TextButton(
+                                            onPressed: () async {
+                                              await GoogleDriveService.signOut();
+                                              // Refresh the UI
+                                              (context as Element).markNeedsBuild();
+                                            },
+                                            child: const Text('Sign Out'),
+                                          )
+                                        : ElevatedButton(
+                                            onPressed: () async {
+                                              showOptimizedToast(context, 'Signing in to Google Drive...', icon: Icons.cloud_upload);
+                                              final success = await GoogleDriveService.signIn();
+                                              if (success) {
+                                                showOptimizedToast(context, 'Successfully connected to Google Drive!', color: Colors.green, icon: Icons.cloud_done);
+                                              } else {
+                                                showDialog(
+                                                  context: context,
+                                                  builder: (context) => AlertDialog(
+                                                    title: const Row(
+                                                      children: [
+                                                        Icon(Icons.info_outline, color: Colors.orange),
+                                                        SizedBox(width: 8),
+                                                        Text('Google Drive Setup Required'),
+                                                      ],
+                                                    ),
+                                                    content: const Text(
+                                                      'To enable Google Drive backup, you need to:\n\n'
+                                                      '1. Create a Google Cloud Project\n'
+                                                      '2. Enable Google Drive API\n'
+                                                      '3. Configure OAuth2 credentials\n'
+                                                      '4. Add the client ID to web/index.html\n\n'
+                                                      'For now, your data is safely stored locally and will persist between app sessions.'
+                                                    ),
+                                                    actions: [
+                                                      ElevatedButton(
+                                                        onPressed: () => Navigator.of(context).pop(),
+                                                        child: const Text('OK'),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                );
+                                              }
+                                              // Refresh the UI
+                                              (context as Element).markNeedsBuild();
+                                            },
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: const Color(0xFFFF9933),
+                                              foregroundColor: Colors.white,
+                                            ),
+                                            child: const Text('Sign In'),
+                                          ),
+                                    ),
+                                    if (isSignedIn) ...[
+                                      const Divider(),
+                                      ListTile(
+                                        leading: const Icon(Icons.backup, color: Color(0xFFFF9933)),
+                                        title: const Text('Backup to Google Drive'),
+                                        subtitle: const Text('Sync all data to your Google Drive'),
+                                        trailing: ElevatedButton(
+                                          onPressed: () => _performGoogleDriveBackup(context, ref),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: const Color(0xFFFF9933),
+                                            foregroundColor: Colors.white,
+                                          ),
+                                          child: const Text('Sync Now'),
+                                        ),
+                                      ),
+                                      const Divider(),
+                                      FutureBuilder<List<String>>(
+                                        future: GoogleDriveService.listBackupFolders(),
+                                        builder: (context, snapshot) {
+                                          if (snapshot.connectionState == ConnectionState.waiting) {
+                                            return const ListTile(
+                                              leading: CircularProgressIndicator(),
+                                              title: Text('Loading backup history...'),
+                                            );
+                                          }
+                                          
+                                          final backupFolders = snapshot.data ?? [];
+                                          
+                                          return ListTile(
+                                            leading: const Icon(Icons.history, color: Color(0xFFFF9933)),
+                                            title: const Text('Backup History'),
+                                            subtitle: Text('${backupFolders.length} backup(s) found'),
+                                            trailing: backupFolders.isNotEmpty 
+                                              ? IconButton(
+                                                  icon: const Icon(Icons.info_outline),
+                                                  onPressed: () => _showBackupHistory(context, backupFolders),
+                                                )
+                                              : null,
+                                          );
+                                        },
+                                      ),
+                                    ],
+                                  ],
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
             // Payment Settings Card (Collapsible)
             Card(
               child: ExpansionTile(
@@ -10747,6 +11682,154 @@ class SettingsScreen extends ConsumerWidget {
     buffer.writeln('='.padRight(32, '='));
     
     return buffer.toString();
+  }
+
+  // Google Drive backup methods
+  void _performGoogleDriveBackup(BuildContext context, WidgetRef ref) async {
+    final settings = ref.read(settingsProvider);
+    
+    // Show progress dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            CircularProgressIndicator(strokeWidth: 2),
+            SizedBox(width: 16),
+            Text('Backing up to Google Drive'),
+          ],
+        ),
+        content: Consumer(
+          builder: (context, ref, child) {
+            return StreamBuilder<String>(
+              stream: _backupProgressStream,
+              builder: (context, snapshot) {
+                return Text(snapshot.data ?? 'Preparing backup...');
+              },
+            );
+          },
+        ),
+      ),
+    );
+
+    try {
+      final success = await GoogleDriveService.syncDataToGoogleDrive(
+        businessName: settings.businessName,
+        onProgress: (progress) {
+          _backupProgressController.add(progress);
+        },
+      );
+
+      Navigator.of(context).pop(); // Close progress dialog
+
+      if (success) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.green),
+                SizedBox(width: 8),
+                Text('Backup Successful'),
+              ],
+            ),
+            content: const Text('All your data has been successfully backed up to Google Drive.'),
+            actions: [
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      } else {
+        _showBackupError(context, 'Backup failed. Please try again.');
+      }
+    } catch (e) {
+      Navigator.of(context).pop(); // Close progress dialog
+      _showBackupError(context, 'Backup failed: $e');
+    }
+  }
+
+  static final StreamController<String> _backupProgressController = StreamController<String>.broadcast();
+  Stream<String> get _backupProgressStream => _backupProgressController.stream;
+
+  void _showBackupError(BuildContext context, String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.error, color: Colors.red),
+            SizedBox(width: 8),
+            Text('Backup Failed'),
+          ],
+        ),
+        content: Text(message),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showBackupHistory(BuildContext context, List<String> backupFolders) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Backup History'),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 300,
+          child: ListView.builder(
+            itemCount: backupFolders.length,
+            itemBuilder: (context, index) {
+              final folderName = backupFolders[index];
+              return ListTile(
+                leading: const Icon(Icons.folder, color: Color(0xFFFF9933)),
+                title: Text(folderName),
+                subtitle: FutureBuilder<Map<String, dynamic>?>(
+                  future: GoogleDriveService.getBackupSummary(folderName),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Text('Loading details...');
+                    }
+                    
+                    final summary = snapshot.data;
+                    if (summary == null) {
+                      return const Text('No details available');
+                    }
+                    
+                    final backupDate = DateTime.tryParse(summary['backup_date'] ?? '');
+                    final totalOrders = summary['total_orders'] ?? 0;
+                    final totalRevenue = summary['total_revenue'] ?? 0.0;
+                    
+                    return Text(
+                      'Date: ${backupDate != null ? formatDateTime(backupDate) : 'Unknown'}\n'
+                      'Orders: $totalOrders | Revenue: ₹${totalRevenue.toStringAsFixed(2)}'
+                    );
+                  },
+                ),
+                onTap: () {
+                  // Could add functionality to restore from this backup
+                  showOptimizedToast(context, 'Backup restore feature coming soon!', icon: Icons.info);
+                },
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 }
 
