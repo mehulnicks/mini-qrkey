@@ -4071,27 +4071,6 @@ class _OrderCompletionPaymentDialogState extends ConsumerState<OrderCompletionPa
                             ),
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        // Alternative: Add to multiple payments
-                        SizedBox(
-                          width: double.infinity,
-                          child: OutlinedButton(
-                            onPressed: _canAddPayment() ? () => _addPayment(_selectedMethod!) : null,
-                            style: OutlinedButton.styleFrom(
-                              side: const BorderSide(color: Color(0xFFFF9933)),
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            ),
-                            child: Text(
-                              'Add to Multiple Payments',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                                color: _canAddPayment() ? const Color(0xFFFF9933) : Colors.grey,
-                              ),
-                            ),
-                          ),
-                        ),
                       ] else ...[
                         // Partial amount or no amount - show regular add payment button
                         SizedBox(
@@ -7112,6 +7091,22 @@ class OrderHistoryScreen extends ConsumerWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        // Modify Order button - available for pending, confirmed, and preparing orders
+        if (order.status == OrderStatus.pending || 
+            order.status == OrderStatus.confirmed || 
+            order.status == OrderStatus.preparing)
+          OutlinedButton(
+            onPressed: () => _showModifyOrderDialog(context, ref, order),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: Colors.blue),
+              foregroundColor: Colors.blue,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+            child: Text('Modify', style: TextStyle(fontSize: 12)),
+          ),
+        
+        const SizedBox(width: 8),
+        
         if (order.status == OrderStatus.pending || order.status == OrderStatus.confirmed)
           OutlinedButton(
             onPressed: () => ref.read(ordersProvider.notifier).updateOrderStatus(order.id, OrderStatus.preparing),
@@ -7341,11 +7336,13 @@ class OrderHistoryScreen extends ConsumerWidget {
     return '${dateTime.day}/${dateTime.month}/${dateTime.year} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
   }
 
-
-
-
-
-
+  void _showModifyOrderDialog(BuildContext context, WidgetRef ref, Order order) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => ModifyOrderDialog(order: order),
+    );
+  }
 
   void _showOrderDetails(BuildContext context, Order order, AppSettings settings) {
     showDialog(
@@ -7845,7 +7842,7 @@ class OrderHistoryScreen extends ConsumerWidget {
   String _generateOrderBillContent(Order order, AppSettings settings) {
     final buffer = StringBuffer();
     buffer.writeln('=' * 32);
-    buffer.writeln('         RESTAURANT BILL');
+    buffer.writeln('    ${settings.businessName.toUpperCase()}');
     buffer.writeln('=' * 32);
     buffer.writeln('Order #: ${order.id}');
     buffer.writeln('Date: ${order.createdAt.day}/${order.createdAt.month}/${order.createdAt.year}');
@@ -7940,6 +7937,7 @@ class OrderHistoryScreen extends ConsumerWidget {
   String _generateSplitOrderBillContent(List<OrderItem> items, AppSettings settings, double splitSubtotal, double splitTax, int billNumber, int totalBills, String orderId, Order originalOrder) {
     final buffer = StringBuffer();
     buffer.writeln('=' * 32);
+    buffer.writeln('    ${settings.businessName.toUpperCase()}');
     buffer.writeln('    SPLIT BILL $billNumber/$totalBills');
     buffer.writeln('=' * 32);
     buffer.writeln('Order #: $orderId');
@@ -8137,6 +8135,273 @@ class OrderHistoryScreen extends ConsumerWidget {
   }
 }
 
+// Modify Order Dialog for adding/removing items from active orders
+class ModifyOrderDialog extends ConsumerStatefulWidget {
+  final Order order;
+
+  const ModifyOrderDialog({super.key, required this.order});
+
+  @override
+  ConsumerState<ModifyOrderDialog> createState() => _ModifyOrderDialogState();
+}
+
+class _ModifyOrderDialogState extends ConsumerState<ModifyOrderDialog> {
+  late List<OrderItem> modifiedItems;
+  
+  @override
+  void initState() {
+    super.initState();
+    // Create a copy of the current order items
+    modifiedItems = widget.order.items.map((item) => OrderItem(
+      menuItem: item.menuItem,
+      quantity: item.quantity,
+      orderType: item.orderType,
+      selectedAddons: item.selectedAddons,
+      specialInstructions: item.specialInstructions,
+      discount: item.discount,
+    )).toList();
+  }
+
+  double get modifiedTotal {
+    double total = 0;
+    for (final item in modifiedItems) {
+      total += item.total;
+    }
+    return total;
+  }
+
+  void _addMenuItem(MenuItem menuItem) {
+    final existingIndex = modifiedItems.indexWhere((item) => item.menuItem.id == menuItem.id);
+    
+    if (existingIndex != -1) {
+      // Increase quantity if item already exists
+      setState(() {
+        modifiedItems[existingIndex] = modifiedItems[existingIndex].copyWith(
+          quantity: modifiedItems[existingIndex].quantity + 1,
+        );
+      });
+    } else {
+      // Add new item
+      setState(() {
+        modifiedItems.add(OrderItem(
+          menuItem: menuItem,
+          quantity: 1,
+          orderType: widget.order.type,
+        ));
+      });
+    }
+  }
+
+  void _removeMenuItem(int itemIndex) {
+    if (itemIndex >= 0 && itemIndex < modifiedItems.length) {
+      if (modifiedItems[itemIndex].quantity > 1) {
+        // Decrease quantity
+        setState(() {
+          modifiedItems[itemIndex] = modifiedItems[itemIndex].copyWith(
+            quantity: modifiedItems[itemIndex].quantity - 1,
+          );
+        });
+      } else {
+        // Remove item completely
+        setState(() {
+          modifiedItems.removeAt(itemIndex);
+        });
+      }
+    }
+  }
+
+  void _updateOrder() {
+    if (modifiedItems.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Order must have at least one item'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final updatedOrder = widget.order.copyWith(
+      items: modifiedItems,
+    );
+
+    ref.read(ordersProvider.notifier).updateOrder(updatedOrder);
+    Navigator.pop(context);
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Order updated successfully'),
+        backgroundColor: Colors.green,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final menuItems = ref.watch(menuProvider);
+    final settings = ref.watch(settingsProvider);
+    
+    return Dialog(
+      child: Container(
+        width: MediaQuery.of(context).size.width * 0.9,
+        height: MediaQuery.of(context).size.height * 0.8,
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Modify Order #${widget.order.id}',
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            
+            // Current items section
+            Expanded(
+              flex: 3,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Current Items:',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade300),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: modifiedItems.isEmpty
+                          ? const Center(child: Text('No items in order'))
+                          : ListView.builder(
+                              itemCount: modifiedItems.length,
+                              itemBuilder: (context, index) {
+                                final item = modifiedItems[index];
+                                return ListTile(
+                                  title: Text(item.menuItem.name),
+                                  subtitle: Text('${formatIndianCurrency(settings.currency, item.unitPrice)} x ${item.quantity}'),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        formatIndianCurrency(settings.currency, item.total),
+                                        style: const TextStyle(fontWeight: FontWeight.bold),
+                                      ),
+                                      IconButton(
+                                        onPressed: () => _removeMenuItem(index),
+                                        icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            const SizedBox(height: 16),
+            
+            // Add items section
+            Expanded(
+              flex: 4,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Add Items:',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade300),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: ListView.builder(
+                        itemCount: menuItems.length,
+                        itemBuilder: (context, index) {
+                          final menuItem = menuItems[index];
+                          if (!menuItem.isAvailable) return const SizedBox.shrink();
+                          
+                          final price = menuItem.getPriceForOrderType(widget.order.type);
+                          
+                          return ListTile(
+                            title: Text(menuItem.name),
+                            subtitle: Text('${menuItem.category} - ${formatIndianCurrency(settings.currency, price)}'),
+                            trailing: IconButton(
+                              onPressed: () => _addMenuItem(menuItem),
+                              icon: const Icon(Icons.add_circle_outline, color: Colors.green),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            const SizedBox(height: 16),
+            
+            // Total and actions
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'New Total:',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        formatIndianCurrency(settings.currency, modifiedTotal),
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      OutlinedButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Cancel'),
+                      ),
+                      ElevatedButton(
+                        onPressed: _updateOrder,
+                        child: const Text('Update Order'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // Menu Screen
 class MenuScreen extends ConsumerWidget {
   const MenuScreen({super.key});
@@ -8210,6 +8475,95 @@ class MenuScreen extends ConsumerWidget {
     );
   }
 
+
+
+  void _showEditItemDialog(BuildContext context, WidgetRef ref, MenuItem item) {
+    final nameController = TextEditingController(text: item.name);
+    final dineInPriceController = TextEditingController(text: item.dineInPrice.toString());
+    final takeawayPriceController = TextEditingController(text: item.takeawayPrice.toString());
+    final categoryController = TextEditingController(text: item.category);
+    
+    final menuItems = ref.read(menuProvider);
+    final existingCategories = menuItems.map((item) => item.category).toSet().toList()..sort();
+    String selectedCategory = item.category;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Edit Menu Item'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: 'Item Name'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: dineInPriceController,
+                decoration: const InputDecoration(labelText: 'Dine In Price'),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: takeawayPriceController,
+                decoration: const InputDecoration(labelText: 'Takeaway Price'),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                value: existingCategories.contains(selectedCategory) ? selectedCategory : null,
+                decoration: const InputDecoration(
+                  labelText: 'Category',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  ...existingCategories.map((category) => DropdownMenuItem(
+                    value: category,
+                    child: Text(category),
+                  )),
+                ],
+                onChanged: (value) {
+                  selectedCategory = value ?? item.category;
+                },
+                hint: const Text('Select Category'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (nameController.text.isNotEmpty && dineInPriceController.text.isNotEmpty) {
+                final updatedItem = MenuItem(
+                  id: item.id,
+                  name: nameController.text,
+                  dineInPrice: double.tryParse(dineInPriceController.text) ?? 0,
+                  takeawayPrice: double.tryParse(takeawayPriceController.text) ?? 
+                                double.tryParse(dineInPriceController.text) ?? 0,
+                  category: selectedCategory,
+                  isAvailable: item.isAvailable,
+                  addons: item.addons,
+                  allowCustomization: item.allowCustomization,
+                  deliveryPrice: item.deliveryPrice,
+                  description: item.description,
+                );
+                ref.read(menuProvider.notifier).updateMenuItem(updatedItem);
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Update'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showAddItemDialog(BuildContext context, WidgetRef ref) {
     final nameController = TextEditingController();
     final dineInPriceController = TextEditingController();
@@ -8269,72 +8623,6 @@ class MenuScreen extends ConsumerWidget {
               }
             },
             child: const Text('Add'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showEditItemDialog(BuildContext context, WidgetRef ref, MenuItem item) {
-    final nameController = TextEditingController(text: item.name);
-    final dineInPriceController = TextEditingController(text: item.dineInPrice.toString());
-    final takeawayPriceController = TextEditingController(text: item.takeawayPrice.toString());
-    final categoryController = TextEditingController(text: item.category);
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Edit Menu Item'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                decoration: const InputDecoration(labelText: 'Item Name'),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: dineInPriceController,
-                decoration: const InputDecoration(labelText: 'Dine In Price'),
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: takeawayPriceController,
-                decoration: const InputDecoration(labelText: 'Takeaway Price'),
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: categoryController,
-                decoration: const InputDecoration(labelText: 'Category'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (nameController.text.isNotEmpty && dineInPriceController.text.isNotEmpty) {
-                final updatedItem = MenuItem(
-                  id: item.id,
-                  name: nameController.text,
-                  dineInPrice: double.tryParse(dineInPriceController.text) ?? 0,
-                  takeawayPrice: double.tryParse(takeawayPriceController.text) ?? 
-                                double.tryParse(dineInPriceController.text) ?? 0,
-                  category: categoryController.text.isEmpty ? 'General' : categoryController.text,
-                  isAvailable: item.isAvailable,
-                );
-                ref.read(menuProvider.notifier).updateMenuItem(updatedItem);
-                Navigator.pop(context);
-              }
-            },
-            child: const Text('Update'),
           ),
         ],
       ),
@@ -11101,12 +11389,12 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   // Menu Management Methods
-  void _showAddItemDialog(BuildContext context, WidgetRef ref) {
+  void _showAddItemDialog(BuildContext context, WidgetRef ref, {String? initialCategory}) {
     final nameController = TextEditingController();
     final dineInPriceController = TextEditingController();
     final takeawayPriceController = TextEditingController();
     final deliveryPriceController = TextEditingController();
-    final categoryController = TextEditingController();
+    final categoryController = TextEditingController(text: initialCategory ?? '');
 
     showDialog(
       context: context,
@@ -11123,9 +11411,51 @@ class SettingsScreen extends ConsumerWidget {
                   decoration: const InputDecoration(labelText: 'Item Name*'),
                 ),
                 const SizedBox(height: 12),
-                TextField(
-                  controller: categoryController,
-                  decoration: const InputDecoration(labelText: 'Category'),
+                Consumer(
+                  builder: (context, ref, child) {
+                    final menuItems = ref.watch(menuProvider);
+                    final existingCategories = menuItems.map((item) => item.category).toSet().toList();
+                    existingCategories.sort();
+                    
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (existingCategories.isNotEmpty) ...[
+                          const Text('Select existing category:', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                          const SizedBox(height: 4),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 4,
+                            children: existingCategories.map((category) => 
+                              FilterChip(
+                                label: Text(category),
+                                selected: categoryController.text == category,
+                                onSelected: (selected) {
+                                  if (selected) {
+                                    categoryController.text = category;
+                                  }
+                                },
+                                selectedColor: const Color(0xFFFF9933).withOpacity(0.3),
+                                checkmarkColor: const Color(0xFFFF9933),
+                              ),
+                            ).toList(),
+                          ),
+                          const SizedBox(height: 8),
+                          const Text('Or enter new category:', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                          const SizedBox(height: 4),
+                        ],
+                        TextField(
+                          controller: categoryController,
+                          decoration: const InputDecoration(
+                            labelText: 'Category',
+                            hintText: 'e.g., Appetizers, Main Course, Desserts',
+                            border: OutlineInputBorder(),
+                          ),
+                          textCapitalization: TextCapitalization.words,
+                        ),
+                      ],
+                    );
+                  },
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -11311,6 +11641,10 @@ class SettingsScreen extends ConsumerWidget {
     final takeawayPriceController = TextEditingController(text: item.takeawayPrice.toString());
     final deliveryPriceController = TextEditingController(text: item.deliveryPrice?.toString() ?? '');
     final categoryController = TextEditingController(text: item.category);
+    
+    final menuItems = ref.read(menuProvider);
+    final existingCategories = menuItems.map((item) => item.category).toSet().toList()..sort();
+    String selectedCategory = item.category;
 
     showDialog(
       context: context,
@@ -11327,9 +11661,22 @@ class SettingsScreen extends ConsumerWidget {
                   decoration: const InputDecoration(labelText: 'Item Name*'),
                 ),
                 const SizedBox(height: 12),
-                TextField(
-                  controller: categoryController,
-                  decoration: const InputDecoration(labelText: 'Category'),
+                DropdownButtonFormField<String>(
+                  value: existingCategories.contains(selectedCategory) ? selectedCategory : null,
+                  decoration: const InputDecoration(
+                    labelText: 'Category',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    ...existingCategories.map((category) => DropdownMenuItem(
+                      value: category,
+                      child: Text(category),
+                    )),
+                  ],
+                  onChanged: (value) {
+                    selectedCategory = value ?? item.category;
+                  },
+                  hint: const Text('Select Category'),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -11371,8 +11718,11 @@ class SettingsScreen extends ConsumerWidget {
                   deliveryPrice: deliveryPriceController.text.isNotEmpty 
                       ? double.tryParse(deliveryPriceController.text)
                       : null,
-                  category: categoryController.text.isEmpty ? 'General' : categoryController.text,
+                  category: selectedCategory,
                   isAvailable: item.isAvailable,
+                  addons: item.addons,
+                  allowCustomization: item.allowCustomization,
+                  description: item.description,
                 );
                 ref.read(menuProvider.notifier).updateMenuItem(updatedItem);
                 Navigator.pop(context);
@@ -11423,21 +11773,79 @@ class SettingsScreen extends ConsumerWidget {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Menu Categories'),
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('Menu Categories'),
+            IconButton(
+              icon: const Icon(Icons.add, color: Color(0xFFFF9933)),
+              onPressed: () => _showAddCategoryDialog(context, ref),
+              tooltip: 'Add Category',
+            ),
+          ],
+        ),
         content: SizedBox(
           width: double.maxFinite,
-          height: 300,
+          height: 400,
           child: categories.isEmpty
-              ? const Center(child: Text('No categories found'))
+              ? const Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.category_outlined, size: 64, color: Colors.grey),
+                      SizedBox(height: 16),
+                      Text('No categories found'),
+                      Text('Add your first category to get started', style: TextStyle(color: Colors.grey)),
+                    ],
+                  ),
+                )
               : ListView.builder(
                   itemCount: categories.length,
                   itemBuilder: (context, index) {
                     final category = categories[index];
                     final itemCount = menuItems.where((item) => item.category == category).length;
-                    return ListTile(
-                      leading: const Icon(Icons.category, color: Color(0xFFFF9933)),
-                      title: Text(category),
-                      subtitle: Text('$itemCount item${itemCount != 1 ? 's' : ''}'),
+                    return Card(
+                      margin: const EdgeInsets.symmetric(vertical: 4),
+                      child: ListTile(
+                        leading: const Icon(Icons.category, color: Color(0xFFFF9933)),
+                        title: Text(category, style: const TextStyle(fontWeight: FontWeight.w500)),
+                        subtitle: Text('$itemCount item${itemCount != 1 ? 's' : ''}'),
+                        trailing: PopupMenuButton<String>(
+                          icon: const Icon(Icons.more_vert),
+                          onSelected: (action) {
+                            switch (action) {
+                              case 'edit':
+                                _showEditCategoryDialog(context, ref, category);
+                                break;
+                              case 'delete':
+                                _showDeleteCategoryDialog(context, ref, category, itemCount);
+                                break;
+                            }
+                          },
+                          itemBuilder: (context) => [
+                            const PopupMenuItem(
+                              value: 'edit',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.edit, size: 18),
+                                  SizedBox(width: 8),
+                                  Text('Edit'),
+                                ],
+                              ),
+                            ),
+                            const PopupMenuItem(
+                              value: 'delete',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.delete, size: 18, color: Colors.red),
+                                  SizedBox(width: 8),
+                                  Text('Delete', style: TextStyle(color: Colors.red)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     );
                   },
                 ),
@@ -11450,6 +11858,259 @@ class SettingsScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  void _showAddCategoryDialog(BuildContext context, WidgetRef ref) {
+    final categoryController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add New Category'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: categoryController,
+                decoration: const InputDecoration(
+                  labelText: 'Category Name',
+                  hintText: 'e.g., Appetizers, Main Course, Desserts',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.category),
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Please enter a category name';
+                  }
+                  final menuItems = ref.read(menuProvider);
+                  final existingCategories = menuItems.map((item) => item.category.toLowerCase()).toSet();
+                  if (existingCategories.contains(value.trim().toLowerCase())) {
+                    return 'Category already exists';
+                  }
+                  return null;
+                },
+                textCapitalization: TextCapitalization.words,
+                autofocus: true,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (formKey.currentState!.validate()) {
+                final categoryName = categoryController.text.trim();
+                Navigator.pop(context);
+                Navigator.pop(context); // Close categories dialog
+                _showAddItemDialog(context, ref, initialCategory: categoryName);
+              }
+            },
+            child: const Text('Create & Add Item'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditCategoryDialog(BuildContext context, WidgetRef ref, String currentCategory) {
+    final categoryController = TextEditingController(text: currentCategory);
+    final formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Edit Category'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: categoryController,
+                decoration: const InputDecoration(
+                  labelText: 'Category Name',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.category),
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Please enter a category name';
+                  }
+                  if (value.trim().toLowerCase() != currentCategory.toLowerCase()) {
+                    final menuItems = ref.read(menuProvider);
+                    final existingCategories = menuItems.map((item) => item.category.toLowerCase()).toSet();
+                    if (existingCategories.contains(value.trim().toLowerCase())) {
+                      return 'Category already exists';
+                    }
+                  }
+                  return null;
+                },
+                textCapitalization: TextCapitalization.words,
+                autofocus: true,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (formKey.currentState!.validate()) {
+                final newCategoryName = categoryController.text.trim();
+                if (newCategoryName != currentCategory) {
+                  _updateCategoryName(ref, currentCategory, newCategoryName);
+                  Navigator.pop(context);
+                  Navigator.pop(context); // Refresh categories dialog
+                  _showCategoriesDialog(context, ref);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Category renamed to "$newCategoryName"')),
+                  );
+                } else {
+                  Navigator.pop(context);
+                }
+              }
+            },
+            child: const Text('Update'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDeleteCategoryDialog(BuildContext context, WidgetRef ref, String category, int itemCount) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Category'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Are you sure you want to delete the category "$category"?'),
+            const SizedBox(height: 12),
+            if (itemCount > 0) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  border: Border.all(color: Colors.orange.shade200),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.warning, color: Colors.orange.shade700),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'This category contains $itemCount item${itemCount != 1 ? 's' : ''}. They will be moved to "General" category.',
+                        style: TextStyle(color: Colors.orange.shade800),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ] else ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  border: Border.all(color: Colors.green.shade200),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.check_circle, color: Colors.green.shade700),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text('This category is empty and can be safely deleted.'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              _deleteCategoryAndMoveItems(ref, category);
+              Navigator.pop(context);
+              Navigator.pop(context); // Refresh categories dialog
+              _showCategoriesDialog(context, ref);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(itemCount > 0 
+                    ? 'Category "$category" deleted. $itemCount item${itemCount != 1 ? 's' : ''} moved to "General".'
+                    : 'Category "$category" deleted.'
+                  ),
+                ),
+              );
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _updateCategoryName(WidgetRef ref, String oldCategory, String newCategory) {
+    final menuItems = ref.read(menuProvider);
+    for (final item in menuItems) {
+      if (item.category == oldCategory) {
+        final updatedItem = MenuItem(
+          id: item.id,
+          name: item.name,
+          dineInPrice: item.dineInPrice,
+          takeawayPrice: item.takeawayPrice,
+          category: newCategory,
+          isAvailable: item.isAvailable,
+          deliveryPrice: item.deliveryPrice,
+          description: item.description,
+          addons: item.addons,
+          allowCustomization: item.allowCustomization,
+        );
+        ref.read(menuProvider.notifier).updateMenuItem(updatedItem);
+      }
+    }
+  }
+
+  void _deleteCategoryAndMoveItems(WidgetRef ref, String categoryToDelete) {
+    final menuItems = ref.read(menuProvider);
+    for (final item in menuItems) {
+      if (item.category == categoryToDelete) {
+        final updatedItem = MenuItem(
+          id: item.id,
+          name: item.name,
+          dineInPrice: item.dineInPrice,
+          takeawayPrice: item.takeawayPrice,
+          category: 'General',
+          isAvailable: item.isAvailable,
+          deliveryPrice: item.deliveryPrice,
+          description: item.description,
+          addons: item.addons,
+          allowCustomization: item.allowCustomization,
+        );
+        ref.read(menuProvider.notifier).updateMenuItem(updatedItem);
+      }
+    }
   }
 
   // Reports & Analytics Methods
