@@ -9207,6 +9207,16 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                               
                               // Revenue by Order Type Section
                               ..._buildOrderTypeAnalysis(filteredOrders, settings),
+                              
+                              const SizedBox(height: 20),
+                              
+                              // Revenue by Payment Types Chart
+                              ..._buildPaymentTypeAnalysis(filteredOrders, settings),
+                              
+                              const SizedBox(height: 20),
+                              
+                              // Revenue by Categories Chart
+                              ..._buildCategoryAnalysis(filteredOrders, settings),
                             ],
                           ),
                         ),
@@ -9427,7 +9437,413 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     );
   }
 
+  // Revenue by Payment Types Analysis
+  List<Widget> _buildPaymentTypeAnalysis(List<Order> filteredOrders, AppSettings settings) {
+    // Calculate payment type statistics
+    final paymentTypeStats = _calculatePaymentTypeStats(filteredOrders);
+    
+    if (paymentTypeStats.isEmpty) {
+      return [];
+    }
+    
+    return [
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Colors.purple.withOpacity(0.05),
+              Colors.white,
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.purple.withOpacity(0.2)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.purple.withOpacity(0.1),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.purple.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.payment,
+                    color: Colors.purple,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Text(
+                  'Revenue by Payment Types',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            
+            // Payment Type Bar Chart
+            Container(
+              height: 200,
+              child: _buildPaymentTypeBarChart(paymentTypeStats, settings),
+            ),
+          ],
+        ),
+      ),
+    ];
+  }
 
+  Map<String, Map<String, dynamic>> _calculatePaymentTypeStats(List<Order> orders) {
+    final stats = <String, Map<String, dynamic>>{};
+    final colors = [Colors.purple, Colors.blue, Colors.green, Colors.orange, Colors.red, Colors.teal];
+    final icons = [Icons.credit_card, Icons.payments, Icons.account_balance_wallet, Icons.mobile_friendly, Icons.qr_code, Icons.payment];
+    int colorIndex = 0;
+    
+    for (final order in orders) {
+      for (final payment in order.payments) {
+        final methodName = _getPaymentMethodDisplayName(payment.method);
+        
+        if (!stats.containsKey(methodName)) {
+          stats[methodName] = {
+            'revenue': 0.0,
+            'count': 0,
+            'color': colors[colorIndex % colors.length],
+            'icon': icons[colorIndex % icons.length],
+          };
+          colorIndex++;
+        }
+        
+        stats[methodName]!['revenue'] += payment.amount;
+        stats[methodName]!['count']++;
+      }
+    }
+    
+    return stats;
+  }
+
+  String _getPaymentMethodDisplayName(PaymentMethod method) {
+    switch (method) {
+      case PaymentMethod.cash:
+        return 'Cash';
+      case PaymentMethod.card:
+        return 'Card';
+      case PaymentMethod.upi:
+        return 'UPI';
+      case PaymentMethod.online:
+        return 'Online';
+      default:
+        return 'Other';
+    }
+  }
+
+  Widget _buildPaymentTypeBarChart(Map<String, Map<String, dynamic>> stats, AppSettings settings) {
+    final maxRevenue = stats.values
+        .map((data) => data['revenue'] as double)
+        .fold(0.0, (max, revenue) => revenue > max ? revenue : max);
+
+    if (maxRevenue == 0) {
+      return const Center(
+        child: Text(
+          'No payment data available',
+          style: TextStyle(color: Colors.grey, fontSize: 14),
+        ),
+      );
+    }
+
+    return Column(
+      children: stats.entries.map((entry) {
+        final revenue = entry.value['revenue'] as double;
+        final count = entry.value['count'] as int;
+        final color = entry.value['color'] as Color;
+        final methodName = entry.key;
+        final percentage = maxRevenue > 0 ? (revenue / maxRevenue) : 0.0;
+        
+        return Container(
+          margin: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  SizedBox(
+                    width: 80,
+                    child: Text(
+                      methodName,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Container(
+                      height: 20,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[200],
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: FractionallySizedBox(
+                        alignment: Alignment.centerLeft,
+                        widthFactor: percentage,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [color, color.withOpacity(0.7)],
+                              begin: Alignment.centerLeft,
+                              end: Alignment.centerRight,
+                            ),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 80,
+                    child: Text(
+                      formatIndianCurrency(settings.currency, revenue),
+                      textAlign: TextAlign.end,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '($count)',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  // Revenue by Categories Analysis
+  List<Widget> _buildCategoryAnalysis(List<Order> filteredOrders, AppSettings settings) {
+    // Calculate category statistics
+    final categoryStats = _calculateCategoryStats(filteredOrders);
+    
+    if (categoryStats.isEmpty) {
+      return [];
+    }
+    
+    return [
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Colors.amber.withOpacity(0.05),
+              Colors.white,
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.amber.withOpacity(0.2)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.amber.withOpacity(0.1),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.category,
+                    color: Colors.amber,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Text(
+                  'Revenue by Categories',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            
+            // Category Bar Chart
+            Container(
+              height: 250, // Slightly taller for potentially more categories
+              child: _buildCategoryBarChart(categoryStats, settings),
+            ),
+          ],
+        ),
+      ),
+    ];
+  }
+
+  Map<String, Map<String, dynamic>> _calculateCategoryStats(List<Order> orders) {
+    final stats = <String, Map<String, dynamic>>{};
+    final colors = [
+      Colors.amber, Colors.deepOrange, Colors.teal, Colors.indigo, 
+      Colors.pink, Colors.cyan, Colors.lime, Colors.deepPurple,
+      Colors.brown, Colors.red
+    ];
+    int colorIndex = 0;
+    
+    for (final order in orders) {
+      for (final item in order.items) {
+        final category = item.menuItem.category;
+        
+        if (!stats.containsKey(category)) {
+          stats[category] = {
+            'revenue': 0.0,
+            'quantity': 0,
+            'itemCount': 0,
+            'color': colors[colorIndex % colors.length],
+          };
+          colorIndex++;
+        }
+        
+        stats[category]!['revenue'] += item.total;
+        stats[category]!['quantity'] += item.quantity;
+        stats[category]!['itemCount']++;
+      }
+    }
+    
+    return stats;
+  }
+
+  Widget _buildCategoryBarChart(Map<String, Map<String, dynamic>> stats, AppSettings settings) {
+    final maxRevenue = stats.values
+        .map((data) => data['revenue'] as double)
+        .fold(0.0, (max, revenue) => revenue > max ? revenue : max);
+
+    if (maxRevenue == 0) {
+      return const Center(
+        child: Text(
+          'No category data available',
+          style: TextStyle(color: Colors.grey, fontSize: 14),
+        ),
+      );
+    }
+
+    // Sort categories by revenue (descending)
+    final sortedStats = stats.entries.toList()
+      ..sort((a, b) => (b.value['revenue'] as double).compareTo(a.value['revenue'] as double));
+
+    return SingleChildScrollView(
+      child: Column(
+        children: sortedStats.map((entry) {
+          final revenue = entry.value['revenue'] as double;
+          final quantity = entry.value['quantity'] as int;
+          final color = entry.value['color'] as Color;
+          final categoryName = entry.key;
+          final percentage = maxRevenue > 0 ? (revenue / maxRevenue) : 0.0;
+          
+          return Container(
+            margin: const EdgeInsets.symmetric(vertical: 6),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 90,
+                      child: Text(
+                        categoryName,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Container(
+                        height: 18,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[200],
+                          borderRadius: BorderRadius.circular(9),
+                        ),
+                        child: FractionallySizedBox(
+                          alignment: Alignment.centerLeft,
+                          widthFactor: percentage,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [color, color.withOpacity(0.7)],
+                                begin: Alignment.centerLeft,
+                                end: Alignment.centerRight,
+                              ),
+                              borderRadius: BorderRadius.circular(9),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 75,
+                      child: Text(
+                        formatIndianCurrency(settings.currency, revenue),
+                        textAlign: TextAlign.end,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '($quantity)',
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
 
   void _showKOTSummaryDialog(BuildContext context, List<Order> orders, String businessName) {
     final dateRange = '${_formatKOTTimestamp(_startDate)} to ${_formatKOTTimestamp(_endDate)}';
