@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "1017136159172",
+    "project_id": "qsr-management-app",
+    "storage_bucket": "qsr-management-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1017136159172:android:23a643529ed23971f2ec91",
+        "android_client_info": {
+          "package_name": "com.example.qsr_flutter_app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1017136159172-d8ksa1tvgvmackhrdu3nk8u4e298nv6d.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB6wC7t1YEKRUTAqbbk4_1S1xDhPpQxd_I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1017136159172-d8ksa1tvgvmackhrdu3nk8u4e298nv6d.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

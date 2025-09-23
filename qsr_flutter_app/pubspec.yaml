@@ -25,6 +25,12 @@ dependencies:
   googleapis: ^11.4.0
   googleapis_auth: ^1.4.1
   
+  # Firebase
+  firebase_core: ^2.24.2
+  firebase_auth: ^4.15.3
+  cloud_firestore: ^4.13.6
+  firebase_storage: ^11.6.0
+  
   # Bluetooth & Printing
   # flutter_bluetooth_serial: ^0.4.0  # Temporarily disabled for Android compatibility
   esc_pos_utils: ^1.1.0
