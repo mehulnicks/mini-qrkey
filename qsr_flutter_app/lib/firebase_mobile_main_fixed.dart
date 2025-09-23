@@ -136,11 +136,6 @@ class MainAppWithUser extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('QSR Management'),
-        backgroundColor: const Color(0xFFFF9933),
-        foregroundColor: Colors.white,
-      ),
       body: FirebaseEnhancedMainScreen(user: user),
     );
   }
@@ -321,13 +316,7 @@ class FirebaseEnhancedSettingsScreen extends ConsumerWidget {
                         subtitle: const Text('Your data is synced to Firebase'),
                         trailing: const Icon(Icons.check_circle, color: Colors.green),
                       ),
-                      ListTile(
-                        leading: const Icon(Icons.backup, color: Color(0xFFFF9933)),
-                        title: const Text('Backup & Restore'),
-                        subtitle: const Text('Automatic cloud backup enabled'),
-                        trailing: const Icon(Icons.arrow_forward_ios),
-                        onTap: () => _showBackupInfo(context),
-                      ),
+
                     ],
                   ),
                 ),
@@ -490,54 +479,7 @@ class FirebaseEnhancedSettingsScreen extends ConsumerWidget {
     }
   }
 
-  void _showBackupInfo(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.backup, color: Color(0xFFFF9933)),
-            SizedBox(width: 8),
-            Text('Cloud Backup'),
-          ],
-        ),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Your data is automatically backed up to Firebase Cloud Firestore.',
-              style: TextStyle(fontSize: 16),
-            ),
-            SizedBox(height: 16),
-            Text(
-              'Features:',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-            ),
-            SizedBox(height: 8),
-            Text('• Real-time synchronization'),
-            Text('• Automatic backups'),
-            Text('• Cross-device access'),
-            Text('• Secure cloud storage'),
-            SizedBox(height: 16),
-            Text(
-              'Your data is safe and accessible from any device you log in to.',
-              style: TextStyle(
-                fontStyle: FontStyle.italic,
-                color: Colors.grey,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Got it'),
-          ),
-        ],
-      ),
-    );
-  }
+
 
   void _showLogoutConfirmation(BuildContext context) {
     showDialog(

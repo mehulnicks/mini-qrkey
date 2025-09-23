@@ -23,6 +23,7 @@ class KOTScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Kitchen Order Tickets'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        toolbarHeight: 48,
         actions: [
           IconButton(
             icon: const Icon(Icons.summarize),
@@ -60,7 +61,7 @@ class KOTScreen extends ConsumerWidget {
               ),
             )
           : ListView.builder(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
               itemCount: openOrders.length,
               itemBuilder: (context, index) {
                 final order = openOrders[index];

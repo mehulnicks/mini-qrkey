@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'main.dart' show QSRMobileApp;
 import 'dart:convert';
 import 'dart:async';
 import 'package:fl_chart/fl_chart.dart';
@@ -1612,7 +1614,7 @@ class _OrderDiscountDialogState extends State<OrderDiscountDialog> {
                     Text('Charges: ₹${widget.order.totalCharges.toStringAsFixed(2)}'),
                   Text('Taxable Amount: ₹${widget.order.taxableAmount.toStringAsFixed(2)}'),
                   const Divider(),
-                  Text('Grand Total: ₹${widget.order.grandTotal.toStringAsFixed(2)}', 
+                  Text('Grand Total: ₹${widget.order.getGrandTotal(widget.settings).toStringAsFixed(2)}', 
                        style: const TextStyle(fontWeight: FontWeight.bold)),
                 ],
               ),
@@ -1804,11 +1806,11 @@ class _OrderDiscountDialogState extends State<OrderDiscountDialog> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text('Preview:', style: TextStyle(fontWeight: FontWeight.bold)),
-          Text('Original Total: ₹${widget.order.grandTotal.toStringAsFixed(2)}'),
+          Text('Original Total: ₹${widget.order.getGrandTotal(widget.settings).toStringAsFixed(2)}'),
           Text('Discount on ${applyToSubtotal ? "Subtotal" : "Taxable Amount"}: -₹${discountAmount.toStringAsFixed(2)}'),
           Text('New Grand Total: ₹${newGrandTotal.toStringAsFixed(2)}', 
                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
-          Text('Savings: ₹${(widget.order.grandTotal - newGrandTotal).toStringAsFixed(2)}', 
+          Text('Savings: ₹${(widget.order.getGrandTotal(widget.settings) - newGrandTotal).toStringAsFixed(2)}', 
                style: const TextStyle(color: Colors.green)),
         ],
       ),
@@ -1885,7 +1887,8 @@ class QSRApp extends StatelessWidget {
         useMaterial3: true,
         appBarTheme: const AppBarTheme(
           centerTitle: true,
-          elevation: 2,
+          elevation: 0,
+          toolbarHeight: 48, // Reduced from default 56
         ),
         cardTheme: CardThemeData(
           elevation: 2,
@@ -2655,7 +2658,8 @@ class Order {
   bool get hasItemDiscounts => itemsDiscountAmount > 0;
   
   double get paidAmount => payments.fold(0.0, (sum, payment) => sum + payment.amount);
-  double get balanceAmount => grandTotal - paidAmount;
+  double get balanceAmount => grandTotal - paidAmount; // Backwards compatibility - uses default tax rates
+  double getBalanceAmount(AppSettings settings) => getGrandTotal(settings) - paidAmount;
   
   Order copyWith({
     String? id,
@@ -2804,7 +2808,7 @@ class CustomerData {
       firstOrderDate: order.createdAt,
       lastOrderDate: order.createdAt,
       totalOrders: 1,
-      totalSpent: order.grandTotal,
+      totalSpent: order.getGrandTotal(AppSettings(sgstRate: 0.09, cgstRate: 0.09)), // Use default for backwards compatibility
       mostUsedOrderType: order.type,
       orderIds: [order.id],
     );
@@ -2832,7 +2836,7 @@ class CustomerData {
       firstOrderDate: firstOrderDate,
       lastOrderDate: order.createdAt,
       totalOrders: totalOrders + 1,
-      totalSpent: totalSpent + order.grandTotal,
+      totalSpent: totalSpent + order.getGrandTotal(AppSettings(sgstRate: 0.09, cgstRate: 0.09)), // Use default for backwards compatibility
       mostUsedOrderType: newMostUsed,
       orderIds: updatedOrderIds,
     );
@@ -3776,7 +3780,7 @@ class _OrderCompletionPaymentDialogState extends ConsumerState<OrderCompletionPa
   }
 
   double get _totalPaid => _payments.fold(0.0, (sum, payment) => sum + payment.amount);
-  double get _remainingAmount => widget.order.grandTotal - _totalPaid;
+  double get _remainingAmount => widget.order.getGrandTotal(ref.read(settingsProvider)) - _totalPaid;
   bool get _isFullyPaid => _remainingAmount <= 0.01; // Allow for small rounding differences
 
   @override
@@ -3877,7 +3881,7 @@ class _OrderCompletionPaymentDialogState extends ConsumerState<OrderCompletionPa
                     children: [
                       const Text('Total Amount:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
                       Text(
-                        formatIndianCurrency('₹', widget.order.grandTotal),
+                        formatIndianCurrency('₹', widget.order.getGrandTotal(ref.read(settingsProvider))),
                         style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFFFF9933)),
                       ),
                     ],
@@ -4981,7 +4985,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
         children: [
           // Enhanced Order Type & Search Section
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [Colors.blue[50]!, Colors.white],
@@ -5882,8 +5886,16 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text('GST (${(settings.totalTaxRate * 100).toInt()}%):'),
-                              Text(formatIndianCurrency(settings.currency, tax)),
+                              Text('SGST (${(settings.sgstRate * 100).toStringAsFixed(1)}%):'),
+                              Text(formatIndianCurrency(settings.currency, tax / 2)),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('CGST (${(settings.cgstRate * 100).toStringAsFixed(1)}%):'),
+                              Text(formatIndianCurrency(settings.currency, tax / 2)),
                             ],
                           ),
                         ],
@@ -6386,9 +6398,10 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     )).toList();
 
     // Update order with payments
+    final settings = ref.read(settingsProvider);
     final completedOrder = order.copyWith(
       payments: orderPayments,
-      paymentStatus: _getPaymentStatus(payments.fold(0.0, (sum, p) => sum + p.amount), order.grandTotal),
+      paymentStatus: _getPaymentStatus(payments.fold(0.0, (sum, p) => sum + p.amount), order.getGrandTotal(settings)),
       status: OrderStatus.confirmed, // Move to confirmed after payment
     );
     
@@ -6692,6 +6705,7 @@ class OrderHistoryScreen extends ConsumerWidget {
         backgroundColor: const Color(0xFFFF9933),
         foregroundColor: Colors.white,
         elevation: 0,
+        toolbarHeight: 48,
       ),
       body: DefaultTabController(
         length: 2,
@@ -6997,7 +7011,7 @@ class OrderHistoryScreen extends ConsumerWidget {
                       ),
                     ),
                     Text(
-                      '₹${order.grandTotal.toStringAsFixed(2)}',
+                      '₹${order.getGrandTotal(ref.read(settingsProvider)).toStringAsFixed(2)}',
                       style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -7163,9 +7177,10 @@ class OrderHistoryScreen extends ConsumerWidget {
                       )).toList();
 
                       // Update order with payments and complete status  
+                      final settings = ref.read(settingsProvider);
                       final completedOrder = order.copyWith(
                         payments: orderPayments,
-                        paymentStatus: payments.fold(0.0, (sum, p) => sum + p.amount) >= order.grandTotal - 0.01 
+                        paymentStatus: payments.fold(0.0, (sum, p) => sum + p.amount) >= order.getGrandTotal(settings) - 0.01 
                             ? PaymentStatus.completed : PaymentStatus.partial,
                         status: OrderStatus.completed,
                       );
@@ -7554,7 +7569,7 @@ class OrderHistoryScreen extends ConsumerWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text('Total:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                  Text('₹${order.grandTotal.toStringAsFixed(2)}', 
+                  Text('₹${order.getGrandTotal(settings).toStringAsFixed(2)}', 
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 ],
               ),
@@ -7734,8 +7749,14 @@ class OrderHistoryScreen extends ConsumerWidget {
                     itemBuilder: (context, splitIndex) {
                       final splitItems = splitOrders[splitIndex];
                       final splitSubtotal = splitItems.fold(0.0, (sum, item) => sum + item.total);
-                      final splitTax = splitSubtotal * settings.totalTaxRate;
-                      final splitGrandTotal = splitSubtotal + splitTax;
+                      
+                      // Calculate proportional charges based on split ratio
+                      final splitRatio = splitSubtotal / order.subtotal;
+                      final proportionalCharges = (order.charges.deliveryCharge + order.charges.packagingCharge + order.charges.serviceCharge) * splitRatio;
+                      
+                      final splitTaxableAmount = splitSubtotal + proportionalCharges;
+                      final splitTax = splitTaxableAmount * settings.totalTaxRate;
+                      final splitGrandTotal = splitTaxableAmount + splitTax;
                       
                       return Card(
                         margin: const EdgeInsets.only(bottom: 8),
@@ -7775,11 +7796,27 @@ class OrderHistoryScreen extends ConsumerWidget {
                                   Text('₹${splitSubtotal.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12)),
                                 ],
                               ),
+                              if (proportionalCharges > 0) ...[
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text('Charges:', style: TextStyle(fontSize: 12)),
+                                    Text('₹${proportionalCharges.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12)),
+                                  ],
+                                ),
+                              ],
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Text('GST (${(settings.totalTaxRate * 100).toInt()}%):', style: const TextStyle(fontSize: 12)),
-                                  Text('₹${splitTax.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12)),
+                                  Text('SGST (${(settings.sgstRate * 100).toStringAsFixed(1)}%):', style: const TextStyle(fontSize: 12)),
+                                  Text('₹${(splitTax / 2).toStringAsFixed(2)}', style: const TextStyle(fontSize: 12)),
+                                ],
+                              ),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text('CGST (${(settings.cgstRate * 100).toStringAsFixed(1)}%):', style: const TextStyle(fontSize: 12)),
+                                  Text('₹${(splitTax / 2).toStringAsFixed(2)}', style: const TextStyle(fontSize: 12)),
                                 ],
                               ),
                               const Divider(height: 8),
@@ -7814,8 +7851,14 @@ class OrderHistoryScreen extends ConsumerWidget {
                 for (int i = 0; i < numberOfSplits; i++) {
                   final splitItems = splitOrders[i];
                   final splitSubtotal = splitItems.fold(0.0, (sum, item) => sum + item.total);
-                  final splitTax = splitSubtotal * settings.totalTaxRate;
-                  final billContent = _generateSplitOrderBillContent(splitItems, settings, splitSubtotal, splitTax, i + 1, numberOfSplits, order.id, order);
+                  
+                  // Calculate proportional charges based on split ratio
+                  final splitRatio = splitSubtotal / order.subtotal;
+                  final proportionalCharges = (order.charges.deliveryCharge + order.charges.packagingCharge + order.charges.serviceCharge) * splitRatio;
+                  
+                  final splitTaxableAmount = splitSubtotal + proportionalCharges;
+                  final splitTax = splitTaxableAmount * settings.totalTaxRate;
+                  final billContent = _generateSplitOrderBillContent(splitItems, settings, splitSubtotal, splitTax, i + 1, numberOfSplits, order.id, order, proportionalCharges);
                   
                   // In a real app, this would print each bill separately
                   print('Split Bill ${i + 1}:\n$billContent');
@@ -7934,7 +7977,7 @@ class OrderHistoryScreen extends ConsumerWidget {
     return buffer.toString();
   }
 
-  String _generateSplitOrderBillContent(List<OrderItem> items, AppSettings settings, double splitSubtotal, double splitTax, int billNumber, int totalBills, String orderId, Order originalOrder) {
+  String _generateSplitOrderBillContent(List<OrderItem> items, AppSettings settings, double splitSubtotal, double splitTax, int billNumber, int totalBills, String orderId, Order originalOrder, double proportionalCharges) {
     final buffer = StringBuffer();
     buffer.writeln('=' * 32);
     buffer.writeln('    ${settings.businessName.toUpperCase()}');
@@ -7977,11 +8020,15 @@ class OrderHistoryScreen extends ConsumerWidget {
       buffer.writeln('Service Charge: ₹${splitServiceCharge.toStringAsFixed(2)}');
     }
     
-    buffer.writeln('GST (18%): ₹${splitTax.toStringAsFixed(2)}');
+    // Show individual tax components
+    final splitTaxableAmount = splitSubtotal + proportionalCharges;
+    final sgstAmount = splitTaxableAmount * settings.sgstRate;
+    final cgstAmount = splitTaxableAmount * settings.cgstRate;
     
-    // Calculate total including proportional charges
-    final proportionalCharges = (originalOrder.charges.deliveryCharge + originalOrder.charges.packagingCharge + originalOrder.charges.serviceCharge) * splitRatio;
-    final splitTotal = splitSubtotal + proportionalCharges + splitTax;
+    buffer.writeln('SGST (${(settings.sgstRate * 100).toStringAsFixed(1)}%): ₹${sgstAmount.toStringAsFixed(2)}');
+    buffer.writeln('CGST (${(settings.cgstRate * 100).toStringAsFixed(1)}%): ₹${cgstAmount.toStringAsFixed(2)}');
+    
+    final splitTotal = splitTaxableAmount + splitTax;
     
     buffer.writeln('=' * 32);
     buffer.writeln('TOTAL: ₹${splitTotal.toStringAsFixed(2)}');
@@ -8664,7 +8711,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         order.createdAt.isAfter(_startDate.subtract(const Duration(days: 1))) &&
         order.createdAt.isBefore(_endDate.add(const Duration(days: 1)))).toList();
 
-    final totalSales = filteredOrders.fold(0.0, (sum, order) => sum + order.grandTotal);
+    final totalSales = filteredOrders.fold(0.0, (sum, order) => sum + order.getGrandTotal(settings));
     final totalOrders = filteredOrders.length;
     final completedOrders = filteredOrders.where((order) => order.status == OrderStatus.completed).length;
     final averageOrderValue = totalOrders > 0 ? totalSales / totalOrders : 0.0;
@@ -8710,7 +8757,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         };
       }
       dailyData[dateKey]!['orders']++;
-      dailyData[dateKey]!['sales'] += order.grandTotal;
+      dailyData[dateKey]!['sales'] += order.getGrandTotal(settings);
       dailyData[dateKey]!['items'] += order.items.fold(0, (sum, item) => sum + item.quantity);
     }
     final sortedDailyData = dailyData.values.toList()
@@ -9235,7 +9282,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   // Revenue by Order Type Methods
   List<Widget> _buildOrderTypeAnalysis(List<Order> filteredOrders, AppSettings settings) {
     // Calculate order type statistics
-    final orderTypeStats = _calculateOrderTypeStats(filteredOrders);
+    final orderTypeStats = _calculateOrderTypeStats(filteredOrders, settings);
     
     return [
       // Revenue by Order Type - Simplified Report
@@ -9301,7 +9348,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     ];
   }
 
-  Map<OrderType, Map<String, dynamic>> _calculateOrderTypeStats(List<Order> orders) {
+  Map<OrderType, Map<String, dynamic>> _calculateOrderTypeStats(List<Order> orders, AppSettings settings) {
     final stats = <OrderType, Map<String, dynamic>>{
       OrderType.dineIn: {
         'count': 0,
@@ -9343,7 +9390,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     for (final order in orders) {
       final type = order.type;
       stats[type]!['count']++;
-      stats[type]!['revenue'] += order.grandTotal;
+      stats[type]!['revenue'] += order.getGrandTotal(settings);
       stats[type]!['items'] += order.items.fold(0, (sum, item) => sum + item.quantity);
     }
     
@@ -9847,11 +9894,13 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 
   void _showKOTSummaryDialog(BuildContext context, List<Order> orders, String businessName) {
     final dateRange = '${_formatKOTTimestamp(_startDate)} to ${_formatKOTTimestamp(_endDate)}';
+    final settings = ref.read(settingsProvider);
     final summaryContent = _formatKOTSummaryReport(
       dateRange,
       orders,
       DateTime.now(),
       businessName,
+      settings,
     );
 
     showDialog(
@@ -9936,7 +9985,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   }
 
   // Helper methods to access the KOT formatting functions
-  String _formatKOTSummaryReport(String dateRange, List<Order> orders, DateTime printTime, String businessName) {
+  String _formatKOTSummaryReport(String dateRange, List<Order> orders, DateTime printTime, String businessName, AppSettings settings) {
     // Create a temporary OrderPlacementScreen to access the formatting method
     // In a real app, these would be static methods or in a separate utility class
     final buffer = StringBuffer();
@@ -9950,7 +9999,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     
     // Metrics: Orders, Gross Sales, Average Order, Items Sold
     final totalOrders = orders.length;
-    final grossSales = orders.fold(0.0, (sum, order) => sum + order.grandTotal);
+    final grossSales = orders.fold(0.0, (sum, order) => sum + order.getGrandTotal(settings));
     final averageOrder = totalOrders > 0 ? grossSales / totalOrders : 0.0;
     final totalItems = orders.fold(0, (sum, order) => 
       sum + order.items.fold(0, (itemSum, item) => itemSum + item.quantity));
@@ -10580,7 +10629,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 
   void _exportSalesSummary(BuildContext context, List<Order> orders, AppSettings settings) {
     final buffer = StringBuffer();
-    final totalSales = orders.fold(0.0, (sum, order) => sum + order.grandTotal);
+    final totalSales = orders.fold(0.0, (sum, order) => sum + order.getGrandTotal(settings));
     final totalOrders = orders.length;
     final avgOrderValue = totalOrders > 0 ? totalSales / totalOrders : 0.0;
     
@@ -10630,7 +10679,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         dailyData[dateKey] = {'orders': 0, 'sales': 0.0};
       }
       dailyData[dateKey]!['orders']++;
-      dailyData[dateKey]!['sales'] += order.grandTotal;
+      dailyData[dateKey]!['sales'] += order.getGrandTotal(settings);
     }
     
     for (final entry in dailyData.entries) {
@@ -10949,11 +10998,217 @@ class SettingsScreen extends ConsumerWidget {
       appBar: AppBar(
         title: Text(l10n(ref, 'settings')),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        toolbarHeight: 48,
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
         child: Column(
           children: [
+            // Enhanced User Account Card (Firebase Integration)
+            Consumer(
+              builder: (context, ref, child) {
+                return FutureBuilder<User?>(
+                  future: FirebaseAuth.instance.authStateChanges().first,
+                  builder: (context, snapshot) {
+                    final user = snapshot.data;
+                    final isLoading = snapshot.connectionState == ConnectionState.waiting;
+                    
+                    return Card(
+                      elevation: 4,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          gradient: LinearGradient(
+                            colors: [
+                              const Color(0xFFFF9933).withOpacity(0.1),
+                              const Color(0xFFFF9933).withOpacity(0.05),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Header Section
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 50,
+                                    height: 50,
+                                    decoration: BoxDecoration(
+                                      gradient: const LinearGradient(
+                                        colors: [Color(0xFFFF9933), Color(0xFFFF7722)],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      ),
+                                      borderRadius: BorderRadius.circular(25),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: const Color(0xFFFF9933).withOpacity(0.3),
+                                          blurRadius: 8,
+                                          offset: const Offset(0, 2),
+                                        ),
+                                      ],
+                                    ),
+                                    child: const Icon(
+                                      Icons.account_circle_rounded,
+                                      color: Colors.white,
+                                      size: 28,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          'User Account',
+                                          style: TextStyle(
+                                            fontSize: 20,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFF2C3E50),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          user != null ? 'Premium Account' : 'Local Account',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            color: user != null ? Colors.green[600] : Colors.orange[600],
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  if (user != null)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.green[100],
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(color: Colors.green[300]!),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.verified, color: Colors.green[600], size: 16),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            'Verified',
+                                            style: TextStyle(
+                                              color: Colors.green[600],
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              
+                              const SizedBox(height: 20),
+                              
+                              // Account Details Section
+                              Container(
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.7),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: const Color(0xFFFF9933).withOpacity(0.2)),
+                                ),
+                                child: Column(
+                                  children: [
+                                    _buildAccountDetailRow(
+                                      icon: Icons.email_rounded,
+                                      label: 'Email',
+                                      value: isLoading ? 'Loading...' : (user?.email ?? 'Not signed in'),
+                                      valueColor: user != null ? const Color(0xFF2C3E50) : Colors.grey[600],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    _buildAccountDetailRow(
+                                      icon: Icons.person_rounded,
+                                      label: 'Display Name',
+                                      value: isLoading ? 'Loading...' : (user?.displayName ?? 'Not set'),
+                                      valueColor: user?.displayName != null ? const Color(0xFF2C3E50) : Colors.grey[600],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    _buildAccountDetailRow(
+                                      icon: Icons.access_time_rounded,
+                                      label: 'Last Sign In',
+                                      value: isLoading ? 'Loading...' : (user?.metadata.lastSignInTime != null 
+                                          ? _formatDateTime(user!.metadata.lastSignInTime!) 
+                                          : 'Never'),
+                                      valueColor: Colors.grey[600],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    _buildAccountDetailRow(
+                                      icon: user != null ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
+                                      label: 'Sync Status',
+                                      value: user != null ? 'Cloud Sync Active' : 'Local Storage Only',
+                                      valueColor: user != null ? Colors.green[600] : Colors.orange[600],
+                                      showBadge: true,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              
+                              const SizedBox(height: 20),
+                              
+                              // Action Buttons Section
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: ElevatedButton.icon(
+                                      onPressed: user != null ? () => _showAccountInfoDialog(context, user) : null,
+                                      icon: const Icon(Icons.info_outline_rounded, size: 18),
+                                      label: const Text('Account Info'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFFFF9933),
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        elevation: 2,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: ElevatedButton.icon(
+                                      onPressed: () => _showLogoutDialog(context),
+                                      icon: const Icon(Icons.logout_rounded, size: 18),
+                                      label: const Text('Logout'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.red[600],
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        elevation: 2,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+            const SizedBox(height: 16),
+            
             // Menu Management Card (Default Open)
             Card(
               child: Padding(
@@ -12548,6 +12803,7 @@ class SettingsScreen extends ConsumerWidget {
       todaysOrders,
       now,
       settings.businessName,
+      settings,
     );
 
     showDialog(
@@ -12690,7 +12946,7 @@ class SettingsScreen extends ConsumerWidget {
     return '${dateTime.day.toString().padLeft(2, '0')}/${dateTime.month.toString().padLeft(2, '0')}/${dateTime.year} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
   }
 
-  String _formatKOTSummaryReport(String dateRange, List<Order> orders, DateTime printTime, String businessName) {
+  String _formatKOTSummaryReport(String dateRange, List<Order> orders, DateTime printTime, String businessName, AppSettings settings) {
     final buffer = StringBuffer();
     
     // Header
@@ -12713,7 +12969,7 @@ class SettingsScreen extends ConsumerWidget {
     }
     
     // Summary stats
-    final totalSales = orders.fold(0.0, (sum, order) => sum + order.grandTotal);
+    final totalSales = orders.fold(0.0, (sum, order) => sum + order.getGrandTotal(settings));
     final completedOrders = orders.where((order) => order.status == OrderStatus.completed).length;
     final avgOrderValue = totalSales / orders.length;
     
@@ -14219,4 +14475,252 @@ class PrinterListScreen extends ConsumerWidget {
       ),
     );
   }
+}
+
+// Logout Dialog Helper Functions
+void _showLogoutDialog(BuildContext context) {
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.logout, color: Colors.red),
+          SizedBox(width: 8),
+          Text('Logout'),
+        ],
+      ),
+      content: const Text('Are you sure you want to logout? Your data will remain safely stored.'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () async {
+            Navigator.of(context).pop();
+            await _logout(context);
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.red,
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('Logout'),
+        ),
+      ],
+    ),
+  );
+}
+
+Future<void> _logout(BuildContext context) async {
+  try {
+    await FirebaseAuth.instance.signOut();
+    
+    // Also clear local login state
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('user_logged_in', false);
+    
+    // Show success message
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Successfully logged out'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+    
+    // Navigation will be handled by the auth state listener
+  } catch (e) {
+    // Fallback logout for local state
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('user_logged_in', false);
+    
+    // Force navigation to login
+    if (context.mounted) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => const QSRMobileApp()),
+        (route) => false,
+      );
+    }
+  }
+}
+
+// Helper methods for enhanced user account UI
+Widget _buildAccountDetailRow({
+  required IconData icon,
+  required String label,
+  required String value,
+  Color? valueColor,
+  bool showBadge = false,
+}) {
+  return Row(
+    children: [
+      Container(
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFF9933).withOpacity(0.1),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Icon(
+          icon,
+          color: const Color(0xFFFF9933),
+          size: 16,
+        ),
+      ),
+      const SizedBox(width: 12),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: valueColor ?? const Color(0xFF2C3E50),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                if (showBadge && value.contains('Active'))
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.green[100],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'ACTIVE',
+                      style: TextStyle(
+                        color: Colors.green[700],
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
+String _formatDateTime(DateTime dateTime) {
+  final now = DateTime.now();
+  final difference = now.difference(dateTime);
+  
+  if (difference.inDays > 7) {
+    return '${dateTime.day}/${dateTime.month}/${dateTime.year}';
+  } else if (difference.inDays > 0) {
+    return '${difference.inDays} day${difference.inDays > 1 ? 's' : ''} ago';
+  } else if (difference.inHours > 0) {
+    return '${difference.inHours} hour${difference.inHours > 1 ? 's' : ''} ago';
+  } else if (difference.inMinutes > 0) {
+    return '${difference.inMinutes} minute${difference.inMinutes > 1 ? 's' : ''} ago';
+  } else {
+    return 'Just now';
+  }
+}
+
+void _showAccountInfoDialog(BuildContext context, User user) {
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      title: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFF9933),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(Icons.account_circle, color: Colors.white, size: 24),
+          ),
+          const SizedBox(width: 12),
+          const Text('Account Information'),
+        ],
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildInfoItem('User ID', user.uid),
+            _buildInfoItem('Email', user.email ?? 'Not provided'),
+            _buildInfoItem('Display Name', user.displayName ?? 'Not set'),
+            _buildInfoItem('Email Verified', user.emailVerified ? 'Yes' : 'No'),
+            _buildInfoItem('Phone Number', user.phoneNumber ?? 'Not provided'),
+            _buildInfoItem('Account Created', 
+                user.metadata.creationTime != null 
+                    ? _formatDateTime(user.metadata.creationTime!) 
+                    : 'Unknown'),
+            _buildInfoItem('Last Sign In', 
+                user.metadata.lastSignInTime != null 
+                    ? _formatDateTime(user.metadata.lastSignInTime!) 
+                    : 'Unknown'),
+            _buildInfoItem('Provider', 
+                user.providerData.isNotEmpty 
+                    ? user.providerData.first.providerId 
+                    : 'Unknown'),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
+}
+
+Widget _buildInfoItem(String label, String value) {
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey[600],
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.grey[100],
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: Colors.grey[300]!),
+          ),
+          child: Text(
+            value,
+            style: const TextStyle(
+              fontSize: 14,
+              color: Color(0xFF2C3E50),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }
