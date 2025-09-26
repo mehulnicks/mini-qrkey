@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'firebase_options.dart';
 import 'clean_qsr_main.dart' as original_app;
 import 'kot_screen.dart';
@@ -87,23 +88,7 @@ class _AuthenticationWrapperState extends State<AuthenticationWrapper> {
       });
     } catch (e) {
       print('Auth state check error: $e');
-      // Check local login state as fallback
-      await _checkLocalLogin();
-    }
-  }
-
-  Future<void> _checkLocalLogin() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final isLoggedIn = prefs.getBool('user_logged_in') ?? false;
-      if (mounted) {
-        setState(() {
-          _isLoggedIn = isLoggedIn;
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      print('Local login check error: $e');
+      // Firebase not available, show login screen
       if (mounted) {
         setState(() {
           _isLoggedIn = false;
@@ -112,6 +97,8 @@ class _AuthenticationWrapperState extends State<AuthenticationWrapper> {
       }
     }
   }
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -323,7 +310,12 @@ class FirebaseEnhancedSettingsScreen extends StatelessWidget {
 
   Future<void> _logout(BuildContext context) async {
     try {
+      // Sign out from Firebase
       await FirebaseAuth.instance.signOut();
+      
+      // Sign out from Google
+      final GoogleSignIn googleSignIn = GoogleSignIn();
+      await googleSignIn.signOut();
       
       // Also clear local login state
       final prefs = await SharedPreferences.getInstance();
@@ -341,6 +333,7 @@ class FirebaseEnhancedSettingsScreen extends StatelessWidget {
       
       // Navigation will be handled by the auth state listener
     } catch (e) {
+      print('Logout error: $e');
       // Fallback logout for local state
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('user_logged_in', false);
@@ -766,6 +759,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _obscurePassword = true;
+  final GoogleSignIn _googleSignIn = GoogleSignIn();
 
   @override
   void dispose() {
@@ -798,10 +792,8 @@ class _LoginScreenState extends State<LoginScreen> {
         message = 'Invalid email address.';
       }
       
-      // Try local login as fallback
-      await _localLogin();
-      
       if (mounted) {
+        _showErrorDialog(message);
         setState(() => _isLoading = false);
       }
       return;
@@ -815,15 +807,46 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _localLogin() async {
-    // Simple local login for demo
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('user_logged_in', true);
+  Future<void> _signInWithGoogle() async {
+    setState(() => _isLoading = true);
     
-    if (mounted) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const MainAppWithUser()),
+    try {
+      // Trigger the authentication flow
+      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+      
+      if (googleUser == null) {
+        // User canceled the sign-in
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      // Obtain the auth details from the request
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+
+      // Create a new credential
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
       );
+
+      // Sign in to Firebase with the Google user credential
+      await FirebaseAuth.instance.signInWithCredential(credential);
+      
+      // Set local login state
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('user_logged_in', true);
+      
+      // Navigation will be handled by the auth state listener
+      
+    } catch (e) {
+      print('Google Sign-In error: $e');
+      if (mounted) {  
+        _showErrorDialog('Google Sign-In failed. Please try again.');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -1022,14 +1045,60 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 20),
                         
-                        // Demo Mode Button
-                        TextButton(
-                          onPressed: _localLogin,
-                          child: const Text(
-                            'Continue as Guest (Demo Mode)',
-                            style: TextStyle(color: Color(0xFFFF9933)),
+                        // Divider
+                        Row(
+                          children: [
+                            const Expanded(child: Divider()),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              child: Text(
+                                'OR',
+                                style: TextStyle(
+                                  color: Colors.grey[600],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            const Expanded(child: Divider()),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+                        
+                        // Google Sign-In Button
+                        SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: OutlinedButton.icon(
+                            onPressed: _signInWithGoogle,
+                            icon: Container(
+                              padding: const EdgeInsets.all(2),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Text(
+                                'G',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.red,
+                                ),
+                              ),
+                            ),
+                            label: const Text(
+                              'Sign in with Google',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.black87,
+                              side: const BorderSide(color: Colors.grey),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              backgroundColor: Colors.white,
+                            ),
                           ),
                         ),
                       ],
