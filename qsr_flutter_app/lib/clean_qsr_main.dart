@@ -12102,8 +12102,9 @@ class SettingsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 16),
             
-            // Menu Management Card (Default Open)
+            // Quick Actions Card (Always Visible)
             Card(
+              elevation: 4,
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -12111,32 +12112,38 @@ class SettingsScreen extends ConsumerWidget {
                   children: [
                     Row(
                       children: [
-                        const Icon(Icons.restaurant_menu, color: Color(0xFFFF9933)),
+                        const Icon(Icons.flash_on, color: Color(0xFFFF9933)),
                         const SizedBox(width: 8),
-                        Text(l10n(ref, 'menu'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        const Text('Quick Actions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                       ],
                     ),
                     const SizedBox(height: 16),
-                    ListTile(
-                      leading: const Icon(Icons.add_circle, color: Color(0xFFFF9933)),
-                      title: const Text('Add Menu Item'),
-                      subtitle: const Text('Add new items to your menu'),
-                      trailing: const Icon(Icons.arrow_forward_ios),
-                      onTap: () => _showAddItemDialog(context, ref),
-                    ),
-                    ListTile(
-                      leading: const Icon(Icons.edit, color: Color(0xFFFF9933)),
-                      title: const Text('Manage Menu Items'),
-                      subtitle: const Text('Edit existing menu items'),
-                      trailing: const Icon(Icons.arrow_forward_ios),
-                      onTap: () => _showMenuManagementDialog(context, ref),
-                    ),
-                    ListTile(
-                      leading: const Icon(Icons.category, color: Color(0xFFFF9933)),
-                      title: const Text('Categories'),
-                      subtitle: const Text('Manage menu categories'),
-                      trailing: const Icon(Icons.arrow_forward_ios),
-                      onTap: () => _showCategoriesDialog(context, ref),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _QuickActionButton(
+                            icon: Icons.add_circle,
+                            label: 'Add Item',
+                            onTap: () => _showAddItemDialog(context, ref),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _QuickActionButton(
+                            icon: Icons.payment,
+                            label: 'Payments',
+                            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const PaymentSettingsScreen())),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _QuickActionButton(
+                            icon: Icons.analytics,
+                            label: 'Reports',
+                            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const ReportsScreen())),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -12144,11 +12151,12 @@ class SettingsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 16),
 
-            // Business Information Card (Collapsible)
+            // Business Setup (Collapsible)
             Card(
               child: ExpansionTile(
                 leading: const Icon(Icons.business, color: Color(0xFFFF9933)),
-                title: Text(l10n(ref, 'business_information'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                title: const Text('Business Setup', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                subtitle: Text('${settings.businessName} • ${settings.currency}'),
                 children: [
                   Padding(
                     padding: const EdgeInsets.all(16.0),
@@ -12179,30 +12187,18 @@ class SettingsScreen extends ConsumerWidget {
                               (value) => ref.read(settingsProvider.notifier).updatePhone(value)),
                         ),
                         ListTile(
-                          leading: const Icon(Icons.email),
-                          title: Text(l10n(ref, 'email')),
-                          subtitle: Text(settings.email.isEmpty ? l10n(ref, 'not_set') : settings.email),
+                          leading: const Icon(Icons.currency_rupee),
+                          title: Text(l10n(ref, 'currency')),
+                          subtitle: Text(settings.currency),
                           trailing: const Icon(Icons.edit),
-                          onTap: () => _showEditDialog(context, ref, l10n(ref, 'email'), settings.email, 
-                              (value) => ref.read(settingsProvider.notifier).updateEmail(value)),
-                        ),
-                        const Divider(),
-                        // Tax Settings
-                        ListTile(
-                          leading: const Icon(Icons.percent),
-                          title: Text(l10n(ref, 'sgst_rate')),
-                          subtitle: Text('${(settings.sgstRate * 100).toStringAsFixed(1)}%'),
-                          trailing: const Icon(Icons.edit),
-                          onTap: () => _showTaxDialog(context, ref, l10n(ref, 'sgst_rate'), settings.sgstRate * 100, 
-                              (value) => ref.read(settingsProvider.notifier).updateSgstRate(value / 100)),
+                          onTap: () => _showCurrencySelector(context, ref),
                         ),
                         ListTile(
                           leading: const Icon(Icons.percent),
-                          title: Text(l10n(ref, 'cgst_rate')),
-                          subtitle: Text('${(settings.cgstRate * 100).toStringAsFixed(1)}%'),
+                          title: const Text('GST Settings'),
+                          subtitle: Text('SGST: ${(settings.sgstRate * 100).toStringAsFixed(1)}% + CGST: ${(settings.cgstRate * 100).toStringAsFixed(1)}%'),
                           trailing: const Icon(Icons.edit),
-                          onTap: () => _showTaxDialog(context, ref, l10n(ref, 'cgst_rate'), settings.cgstRate * 100, 
-                              (value) => ref.read(settingsProvider.notifier).updateCgstRate(value / 100)),
+                          onTap: () => _showTaxRateDialog(context, ref, settings.totalTaxRate),
                         ),
                       ],
                     ),
@@ -12212,39 +12208,67 @@ class SettingsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 16),
 
-            // Feature Settings Card (Collapsible)
+            // Menu Management (Collapsible)
             Card(
               child: ExpansionTile(
-                leading: const Icon(Icons.settings, color: Color(0xFFFF9933)),
-                title: Text(l10n(ref, 'feature_settings'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                leading: const Icon(Icons.restaurant_menu, color: Color(0xFFFF9933)),
+                title: Text(l10n(ref, 'menu'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                subtitle: Consumer(
+                  builder: (context, ref, child) {
+                    final menuItems = ref.watch(menuProvider);
+                    final categories = menuItems.map((item) => item.category).toSet().toList();
+                    return Text('${menuItems.length} items • ${categories.length} categories');
+                  },
+                ),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        ListTile(
+                          leading: const Icon(Icons.add_circle, color: Color(0xFFFF9933)),
+                          title: const Text('Add Menu Item'),
+                          subtitle: const Text('Add new items to your menu'),
+                          trailing: const Icon(Icons.arrow_forward_ios),
+                          onTap: () => _showAddItemDialog(context, ref),
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.edit, color: Color(0xFFFF9933)),
+                          title: const Text('Manage Items'),
+                          subtitle: const Text('Edit existing menu items'),
+                          trailing: const Icon(Icons.arrow_forward_ios),
+                          onTap: () => _showMenuManagementDialog(context, ref),
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.category, color: Color(0xFFFF9933)),
+                          title: const Text('Categories'),
+                          subtitle: const Text('Manage menu categories'),
+                          trailing: const Icon(Icons.arrow_forward_ios),
+                          onTap: () => _showCategoriesDialog(context, ref),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Order Features (Collapsible)
+            Card(
+              child: ExpansionTile(
+                leading: const Icon(Icons.shopping_cart, color: Color(0xFFFF9933)),
+                title: const Text('Order Features', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                subtitle: Text('${_getActiveFeatureCount(settings)} of 4 features enabled'),
                 children: [
                   Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Column(
                       children: [
                         SwitchListTile(
-                          secondary: const Icon(Icons.print),
-                          title: Text(l10n(ref, 'kot_printing')),
-                          subtitle: Text(l10n(ref, 'kot_printing_desc')),
-                          value: settings.kotEnabled,
-                          activeColor: const Color(0xFFFF9933),
-                          onChanged: (bool value) {
-                            ref.read(settingsProvider.notifier).updateSettings(
-                              settings.copyWith(kotEnabled: value),
-                            );
-                          },
-                        ),
-                        ListTile(
-                          leading: const Icon(Icons.translate),
-                          title: Text(l10n(ref, 'default_language')),
-                          subtitle: Text(settings.defaultLanguage == 'en' ? l10n(ref, 'english') : l10n(ref, 'hindi')),
-                          trailing: const Icon(Icons.edit),
-                          onTap: () => _showLanguageSelector(context, ref, settings.defaultLanguage),
-                        ),
-                        SwitchListTile(
                           secondary: const Icon(Icons.delivery_dining),
                           title: Text(l10n(ref, 'delivery_service')),
-                          subtitle: Text(l10n(ref, 'delivery_service_desc')),
+                          subtitle: Text(settings.deliveryEnabled ? '${settings.currency}${settings.defaultDeliveryCharge.toStringAsFixed(2)} charge' : 'Disabled'),
                           value: settings.deliveryEnabled,
                           activeColor: const Color(0xFFFF9933),
                           onChanged: (bool value) {
@@ -12253,9 +12277,9 @@ class SettingsScreen extends ConsumerWidget {
                             );
                           },
                         ),
-                        if (settings.deliveryEnabled) ...[
+                        if (settings.deliveryEnabled)
                           ListTile(
-                            leading: const Icon(Icons.local_shipping),
+                            leading: const SizedBox(width: 24),
                             title: const Text('Delivery Charge'),
                             subtitle: Text('${settings.currency}${settings.defaultDeliveryCharge.toStringAsFixed(2)}'),
                             trailing: const Icon(Icons.edit),
@@ -12265,12 +12289,10 @@ class SettingsScreen extends ConsumerWidget {
                               ),
                             ),
                           ),
-                        ],
-                        const Divider(),
                         SwitchListTile(
                           secondary: const Icon(Icons.inventory),
                           title: Text(l10n(ref, 'packaging_service')),
-                          subtitle: Text(l10n(ref, 'packaging_service_desc')),
+                          subtitle: Text(settings.packagingEnabled ? '${settings.currency}${settings.defaultPackagingCharge.toStringAsFixed(2)} charge' : 'Disabled'),
                           value: settings.packagingEnabled,
                           activeColor: const Color(0xFFFF9933),
                           onChanged: (bool value) {
@@ -12279,9 +12301,9 @@ class SettingsScreen extends ConsumerWidget {
                             );
                           },
                         ),
-                        if (settings.packagingEnabled) ...[
+                        if (settings.packagingEnabled)
                           ListTile(
-                            leading: const Icon(Icons.inventory_2),
+                            leading: const SizedBox(width: 24),
                             title: const Text('Packaging Charge'),
                             subtitle: Text('${settings.currency}${settings.defaultPackagingCharge.toStringAsFixed(2)}'),
                             trailing: const Icon(Icons.edit),
@@ -12291,12 +12313,10 @@ class SettingsScreen extends ConsumerWidget {
                               ),
                             ),
                           ),
-                        ],
-                        const Divider(),
                         SwitchListTile(
                           secondary: const Icon(Icons.room_service),
                           title: Text(l10n(ref, 'service_charges')),
-                          subtitle: Text(l10n(ref, 'service_charges_desc')),
+                          subtitle: Text(settings.serviceEnabled ? '${settings.currency}${settings.defaultServiceCharge.toStringAsFixed(2)} for dine-in' : 'Disabled'),
                           value: settings.serviceEnabled,
                           activeColor: const Color(0xFFFF9933),
                           onChanged: (bool value) {
@@ -12305,9 +12325,9 @@ class SettingsScreen extends ConsumerWidget {
                             );
                           },
                         ),
-                        if (settings.serviceEnabled) ...[
+                        if (settings.serviceEnabled)
                           ListTile(
-                            leading: const Icon(Icons.restaurant_menu),
+                            leading: const SizedBox(width: 24),
                             title: const Text('Service Charge'),
                             subtitle: Text('${settings.currency}${settings.defaultServiceCharge.toStringAsFixed(2)} (Dine-in only)'),
                             trailing: const Icon(Icons.edit),
@@ -12317,7 +12337,18 @@ class SettingsScreen extends ConsumerWidget {
                               ),
                             ),
                           ),
-                        ],
+                        SwitchListTile(
+                          secondary: const Icon(Icons.print),
+                          title: Text(l10n(ref, 'kot_printing')),
+                          subtitle: Text(settings.kotEnabled ? 'Auto-print to kitchen' : 'Disabled'),
+                          value: settings.kotEnabled,
+                          activeColor: const Color(0xFFFF9933),
+                          onChanged: (bool value) {
+                            ref.read(settingsProvider.notifier).updateSettings(
+                              settings.copyWith(kotEnabled: value),
+                            );
+                          },
+                        ),
                       ],
                     ),
                   ),
@@ -12326,11 +12357,80 @@ class SettingsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 16),
 
-            // Google Drive Backup Card (Collapsible)
+            // System Settings (Collapsible)
+            Card(
+              child: ExpansionTile(
+                leading: const Icon(Icons.settings, color: Color(0xFFFF9933)),
+                title: const Text('System Settings', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                subtitle: Text('Language: ${settings.defaultLanguage == 'en' ? 'English' : 'Hindi'}'),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        ListTile(
+                          leading: const Icon(Icons.translate),
+                          title: Text(l10n(ref, 'default_language')),
+                          subtitle: Text(settings.defaultLanguage == 'en' ? l10n(ref, 'english') : l10n(ref, 'hindi')),
+                          trailing: const Icon(Icons.edit),
+                          onTap: () => _showLanguageSelector(context, ref, settings.defaultLanguage),
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.credit_card, color: Color(0xFFFF9933)),
+                          title: const Text('Payment Methods'),
+                          subtitle: Consumer(
+                            builder: (context, ref, child) {
+                              final paymentConfig = ref.watch(paymentConfigProvider);
+                              final enabledCount = paymentConfig.enabledMethods.length;
+                              return Text('$enabledCount methods enabled');
+                            },
+                          ),
+                          trailing: const Icon(Icons.arrow_forward_ios),
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => const PaymentSettingsScreen()),
+                          ),
+                        ),
+                        ListTile(
+                          leading: const Icon(Icons.print, color: Color(0xFFFF9933)),
+                          title: const Text('Printer Setup'),
+                          subtitle: Consumer(
+                            builder: (context, ref, child) {
+                              final printers = ref.watch(printerProvider);
+                              final connectedCount = printers.where((p) => p.status == PrinterStatus.connected).length;
+                              return Text('$connectedCount of ${printers.length} printers online');
+                            },
+                          ),
+                          trailing: const Icon(Icons.arrow_forward_ios),
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => const PrinterManagementScreen()),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Data & Backup (Collapsible)
             Card(
               child: ExpansionTile(
                 leading: const Icon(Icons.cloud_upload, color: Color(0xFFFF9933)),
-                title: const Text('Cloud Backup', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                title: const Text('Data & Backup', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                subtitle: Consumer(
+                  builder: (context, ref, child) {
+                    return FutureBuilder<String?>(
+                      future: GoogleDriveService.getCurrentUserEmail(),
+                      builder: (context, snapshot) {
+                        final isSignedIn = GoogleDriveService.isSignedIn && snapshot.data != null;
+                        return Text(isSignedIn ? 'Google Drive connected' : 'Local storage only');
+                      },
+                    );
+                  },
+                ),
                 children: [
                   Padding(
                     padding: const EdgeInsets.all(16.0),
@@ -12351,67 +12451,39 @@ class SettingsScreen extends ConsumerWidget {
                                         isSignedIn ? Icons.cloud_done : Icons.cloud_off,
                                         color: isSignedIn ? Colors.green : Colors.grey,
                                       ),
-                                      title: Text(isSignedIn ? 'Connected to Google Drive' : 'Not Connected'),
-                                      subtitle: Text(isSignedIn ? userEmail : 'Sign in to enable cloud backup'),
+                                      title: Text(isSignedIn ? 'Google Drive' : 'Connect Google Drive'),
+                                      subtitle: Text(isSignedIn ? userEmail : 'Enable cloud backup'),
                                       trailing: isSignedIn 
                                         ? TextButton(
                                             onPressed: () async {
                                               await GoogleDriveService.signOut();
-                                              // Refresh the UI
                                               (context as Element).markNeedsBuild();
                                             },
-                                            child: const Text('Sign Out'),
+                                            child: const Text('Disconnect'),
                                           )
                                         : ElevatedButton(
                                             onPressed: () async {
-                                              showOptimizedToast(context, 'Signing in to Google Drive...', icon: Icons.cloud_upload);
+                                              showOptimizedToast(context, 'Connecting to Google Drive...', icon: Icons.cloud_upload);
                                               final success = await GoogleDriveService.signIn();
                                               if (success) {
-                                                showOptimizedToast(context, 'Successfully connected to Google Drive!', color: Colors.green, icon: Icons.cloud_done);
+                                                showOptimizedToast(context, 'Connected to Google Drive!', color: Colors.green, icon: Icons.cloud_done);
                                               } else {
-                                                showDialog(
-                                                  context: context,
-                                                  builder: (context) => AlertDialog(
-                                                    title: const Row(
-                                                      children: [
-                                                        Icon(Icons.info_outline, color: Colors.orange),
-                                                        SizedBox(width: 8),
-                                                        Text('Google Drive Setup Required'),
-                                                      ],
-                                                    ),
-                                                    content: const Text(
-                                                      'To enable Google Drive backup, you need to:\n\n'
-                                                      '1. Create a Google Cloud Project\n'
-                                                      '2. Enable Google Drive API\n'
-                                                      '3. Configure OAuth2 credentials\n'
-                                                      '4. Add the client ID to web/index.html\n\n'
-                                                      'For now, your data is safely stored locally and will persist between app sessions.'
-                                                    ),
-                                                    actions: [
-                                                      ElevatedButton(
-                                                        onPressed: () => Navigator.of(context).pop(),
-                                                        child: const Text('OK'),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                );
+                                                showOptimizedToast(context, 'Google Drive setup required', color: Colors.orange, icon: Icons.info);
                                               }
-                                              // Refresh the UI
                                               (context as Element).markNeedsBuild();
                                             },
                                             style: ElevatedButton.styleFrom(
                                               backgroundColor: const Color(0xFFFF9933),
                                               foregroundColor: Colors.white,
                                             ),
-                                            child: const Text('Sign In'),
+                                            child: const Text('Connect'),
                                           ),
                                     ),
                                     if (isSignedIn) ...[
-                                      const Divider(),
                                       ListTile(
                                         leading: const Icon(Icons.backup, color: Color(0xFFFF9933)),
-                                        title: const Text('Backup to Google Drive'),
-                                        subtitle: const Text('Sync all data to your Google Drive'),
+                                        title: const Text('Sync Data'),
+                                        subtitle: const Text('Backup all data to Google Drive'),
                                         trailing: ElevatedButton(
                                           onPressed: () => _performGoogleDriveBackup(context, ref),
                                           style: ElevatedButton.styleFrom(
@@ -12421,32 +12493,6 @@ class SettingsScreen extends ConsumerWidget {
                                           child: const Text('Sync Now'),
                                         ),
                                       ),
-                                      const Divider(),
-                                      FutureBuilder<List<String>>(
-                                        future: GoogleDriveService.listBackupFolders(),
-                                        builder: (context, snapshot) {
-                                          if (snapshot.connectionState == ConnectionState.waiting) {
-                                            return const ListTile(
-                                              leading: CircularProgressIndicator(),
-                                              title: Text('Loading backup history...'),
-                                            );
-                                          }
-                                          
-                                          final backupFolders = snapshot.data ?? [];
-                                          
-                                          return ListTile(
-                                            leading: const Icon(Icons.history, color: Color(0xFFFF9933)),
-                                            title: const Text('Backup History'),
-                                            subtitle: Text('${backupFolders.length} backup(s) found'),
-                                            trailing: backupFolders.isNotEmpty 
-                                              ? IconButton(
-                                                  icon: const Icon(Icons.info_outline),
-                                                  onPressed: () => _showBackupHistory(context, backupFolders),
-                                                )
-                                              : null,
-                                          );
-                                        },
-                                      ),
                                     ],
                                   ],
                                 );
@@ -12454,185 +12500,16 @@ class SettingsScreen extends ConsumerWidget {
                             );
                           },
                         ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Payment Settings Card (Collapsible)
-            Card(
-              child: ExpansionTile(
-                leading: const Icon(Icons.payment, color: Color(0xFFFF9933)),
-                title: const Text('Payment Settings', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      children: [
                         ListTile(
-                          leading: const Icon(Icons.credit_card, color: Color(0xFFFF9933)),
-                          title: const Text('Payment Methods'),
-                          subtitle: const Text('Configure accepted payment methods'),
-                          trailing: const Icon(Icons.arrow_forward_ios),
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (context) => const PaymentSettingsScreen()),
-                          ),
-                        ),
-                        Consumer(
-                          builder: (context, ref, child) {
-                            final paymentConfig = ref.watch(paymentConfigProvider);
-                            final enabledCount = paymentConfig.enabledMethods.length;
-                            
-                            return ListTile(
-                              leading: const Icon(Icons.info_outline),
-                              title: const Text('Current Status'),
-                              subtitle: Text('$enabledCount payment methods enabled'),
-                              trailing: Chip(
-                                label: Text('$enabledCount active'),
-                                backgroundColor: enabledCount > 0 ? Colors.green[100] : Colors.red[100],
-                                labelStyle: TextStyle(
-                                  color: enabledCount > 0 ? Colors.green[800] : Colors.red[800],
-                                  fontSize: 12,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Printer Management Card (Collapsible)
-            Card(
-              child: ExpansionTile(
-                leading: const Icon(Icons.print, color: Color(0xFFFF9933)),
-                title: const Text('Printer Management', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      children: [
-                        ListTile(
-                          leading: const Icon(Icons.add_circle, color: Color(0xFFFF9933)),
-                          title: const Text('Add New Printer'),
-                          subtitle: const Text('Connect network, USB, or Bluetooth printer'),
-                          trailing: const Icon(Icons.arrow_forward_ios),
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (context) => const PrinterManagementScreen()),
-                          ),
-                        ),
-                        Consumer(
-                          builder: (context, ref, child) {
-                            final printers = ref.watch(printerProvider);
-                            final connectedCount = printers.where((p) => p.status == PrinterStatus.connected).length;
-                            final defaultPrinter = ref.watch(defaultPrinterProvider);
-                            
-                            return Column(
-                              children: [
-                                ListTile(
-                                  leading: const Icon(Icons.info_outline),
-                                  title: const Text('Printer Status'),
-                                  subtitle: Text('${printers.length} total, $connectedCount connected'),
-                                  trailing: Chip(
-                                    label: Text('$connectedCount online'),
-                                    backgroundColor: connectedCount > 0 ? Colors.green[100] : Colors.red[100],
-                                    labelStyle: TextStyle(
-                                      color: connectedCount > 0 ? Colors.green[800] : Colors.red[800],
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ),
-                                if (defaultPrinter != null)
-                                  ListTile(
-                                    leading: Icon(Icons.star, color: Colors.amber[700]),
-                                    title: const Text('Default Printer'),
-                                    subtitle: Text('${defaultPrinter.name} (${defaultPrinter.connectionType.displayName})'),
-                                    trailing: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: defaultPrinter.status.color.withOpacity(0.1),
-                                        borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(color: defaultPrinter.status.color.withOpacity(0.3)),
-                                      ),
-                                      child: Text(
-                                        defaultPrinter.status.displayName,
-                                        style: TextStyle(
-                                          color: defaultPrinter.status.color,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                if (printers.isNotEmpty)
-                                  ListTile(
-                                    leading: const Icon(Icons.list, color: Color(0xFFFF9933)),
-                                    title: const Text('Manage Printers'),
-                                    subtitle: Text('Configure ${printers.length} printer${printers.length == 1 ? '' : 's'}'),
-                                    trailing: const Icon(Icons.arrow_forward_ios),
-                                    onTap: () => Navigator.push(
-                                      context,
-                                      MaterialPageRoute(builder: (context) => const PrinterListScreen()),
-                                    ),
-                                  ),
-                              ],
-                            );
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Reports & Analytics Card (Collapsible)
-            Card(
-              child: ExpansionTile(
-                leading: const Icon(Icons.analytics, color: Color(0xFFFF9933)),
-                title: const Text('Reports & Analytics', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      children: [
-                        ListTile(
-                          leading: const Icon(Icons.people, color: Color(0xFFFF9933)),
-                          title: const Text('Customer Analytics'),
-                          subtitle: const Text('View customer data and insights'),
-                          trailing: const Icon(Icons.arrow_forward_ios),
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (context) => const CustomerAnalyticsScreen()),
-                          ),
-                        ),
-                        ListTile(
-                          leading: const Icon(Icons.bar_chart, color: Color(0xFFFF9933)),
-                          title: const Text('Sales Reports'),
-                          subtitle: const Text('View sales analytics and trends'),
+                          leading: const Icon(Icons.analytics, color: Color(0xFFFF9933)),
+                          title: const Text('Reports & Analytics'),
+                          subtitle: const Text('View sales reports and customer data'),
                           trailing: const Icon(Icons.arrow_forward_ios),
                           onTap: () => Navigator.push(
                             context,
                             MaterialPageRoute(builder: (context) => const ReportsScreen()),
                           ),
                         ),
-                        ListTile(
-                          leading: const Icon(Icons.receipt_long, color: Color(0xFFFF9933)),
-                          title: const Text('KOT Summary'),
-                          subtitle: const Text('Kitchen order ticket reports'),
-                          trailing: const Icon(Icons.arrow_forward_ios),
-                          onTap: () => _showKOTReportsDialog(context, ref),
-                        ),
                       ],
                     ),
                   ),
@@ -12641,43 +12518,12 @@ class SettingsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 16),
 
-            // Financial Settings Card (Collapsible)
-            Card(
-              child: ExpansionTile(
-                leading: const Icon(Icons.attach_money, color: Color(0xFFFF9933)),
-                title: Text(l10n(ref, 'financial_settings'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      children: [
-                        ListTile(
-                          leading: const Icon(Icons.currency_rupee),
-                          title: Text(l10n(ref, 'currency')),
-                          subtitle: Text(settings.currency),
-                          trailing: const Icon(Icons.edit),
-                          onTap: () => _showCurrencySelector(context, ref),
-                        ),
-                        ListTile(
-                          leading: const Icon(Icons.percent),
-                          title: Text(l10n(ref, 'tax_rate')),
-                          subtitle: Text('SGST: ${(settings.sgstRate * 100).toStringAsFixed(1)}% + CGST: ${(settings.cgstRate * 100).toStringAsFixed(1)}%'),
-                          trailing: const Icon(Icons.edit),
-                          onTap: () => _showTaxRateDialog(context, ref, settings.totalTaxRate),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // App Information Card (Collapsible)  
+            // About & Support (Collapsible)  
             Card(
               child: ExpansionTile(
                 leading: const Icon(Icons.info, color: Color(0xFFFF9933)),
-                title: const Text('App Information', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                title: const Text('About & Support', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                subtitle: const Text('Version 1.0.0 • QSR Solutions'),
                 children: [
                   Padding(
                     padding: const EdgeInsets.all(16.0),
@@ -12685,23 +12531,21 @@ class SettingsScreen extends ConsumerWidget {
                       children: [
                         const ListTile(
                           leading: Icon(Icons.info),
-                          title: Text('Version'),
-                          subtitle: Text('1.0.0'),
+                          title: Text('App Version'),
+                          subtitle: Text('1.0.0 - Restaurant Management System'),
                         ),
                         const ListTile(
                           leading: Icon(Icons.developer_mode),
                           title: Text('Developer'),
-                          subtitle: Text('QSR Solutions'),
+                          subtitle: Text('QSR Solutions - Restaurant Technology'),
                         ),
                         ListTile(
                           leading: const Icon(Icons.help),
-                          title: const Text('Support'),
-                          subtitle: const Text('Get help and support'),
+                          title: const Text('Support & Help'),
+                          subtitle: const Text('Get assistance and contact support'),
                           trailing: const Icon(Icons.arrow_forward_ios),
                           onTap: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Contact support: support@qsrsolutions.com')),
-                            );
+                            showOptimizedToast(context, 'Contact: support@qsrsolutions.com', icon: Icons.email, color: Colors.blue);
                           },
                         ),
                       ],
@@ -12714,6 +12558,15 @@ class SettingsScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  int _getActiveFeatureCount(AppSettings settings) {
+    int count = 0;
+    if (settings.deliveryEnabled) count++;
+    if (settings.packagingEnabled) count++;
+    if (settings.serviceEnabled) count++;
+    if (settings.kotEnabled) count++;
+    return count;
   }
 
   void _showEditDialog(BuildContext context, WidgetRef ref, String title, String currentValue, Function(String) onUpdate) {
@@ -15616,4 +15469,53 @@ Widget _buildInfoItem(String label, String value) {
       ],
     ),
   );
+}
+
+// Quick Action Button Widget
+class _QuickActionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _QuickActionButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+        decoration: BoxDecoration(
+          color: Colors.grey[50],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey[200]!),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              color: const Color(0xFFFF9933),
+              size: 28,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF2C3E50),
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
