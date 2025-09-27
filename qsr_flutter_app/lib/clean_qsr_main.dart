@@ -417,18 +417,26 @@ class LocalStorageService {
   // Orders Storage
   static Future<void> saveOrders(List<Order> orders) async {
     await _initPrefs();
+    print('DEBUG: LocalStorageService.saveOrders - saving ${orders.length} orders');
     final orderJsonList = orders.map((order) => _orderToJson(order)).toList();
     await _prefs!.setString(_ordersKey, jsonEncode(orderJsonList));
+    print('DEBUG: LocalStorageService.saveOrders - saved successfully');
   }
   
   static Future<List<Order>> loadOrders() async {
     await _initPrefs();
     final ordersJson = _prefs!.getString(_ordersKey);
-    if (ordersJson == null) return [];
+    print('DEBUG: LocalStorageService.loadOrders - ordersJson exists: ${ordersJson != null}');
+    if (ordersJson == null) {
+      print('DEBUG: LocalStorageService.loadOrders - returning empty list');
+      return [];
+    }
     
     try {
       final List<dynamic> ordersList = jsonDecode(ordersJson);
-      return ordersList.map((json) => _orderFromJson(json)).toList();
+      final orders = ordersList.map((json) => _orderFromJson(json)).toList();
+      print('DEBUG: LocalStorageService.loadOrders - loaded ${orders.length} orders');
+      return orders;
     } catch (e) {
       print('Error loading orders: $e');
       return [];
@@ -3134,13 +3142,23 @@ class CurrentOrderNotifier extends StateNotifier<List<OrderItem>> {
 }
 
 class OrdersNotifier extends StateNotifier<List<Order>> {
+  bool _isLoaded = false;
+  
   OrdersNotifier() : super([]) {
     _loadOrders();
   }
 
   Future<void> _loadOrders() async {
     final loadedOrders = await LocalStorageService.loadOrders();
-    state = loadedOrders;
+    print('DEBUG: OrdersNotifier._loadOrders - loaded ${loadedOrders.length} orders, _isLoaded: $_isLoaded');
+    // Only update state if no orders have been added yet
+    if (!_isLoaded) {
+      state = loadedOrders;
+      _isLoaded = true;
+      print('DEBUG: OrdersNotifier._loadOrders - state updated with ${state.length} orders');
+    } else {
+      print('DEBUG: OrdersNotifier._loadOrders - skipped loading, already have orders');
+    }
   }
 
   Future<void> _saveOrders() async {
@@ -3148,7 +3166,11 @@ class OrdersNotifier extends StateNotifier<List<Order>> {
   }
 
   void addOrder(Order order) {
+    // Ensure we're marked as loaded to prevent race condition
+    _isLoaded = true;
+    print('DEBUG: OrdersNotifier.addOrder - adding order ${order.id}, current count: ${state.length}');
     state = [order, ...state];
+    print('DEBUG: OrdersNotifier.addOrder - new count: ${state.length}');
     _saveOrders();
   }
 
@@ -3815,62 +3837,79 @@ class _OrderCompletionPaymentDialogState extends ConsumerState<OrderCompletionPa
       child: Container(
         width: isSmallScreen ? MediaQuery.of(context).size.width * 0.95 : 500,
         constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.9,
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+          maxWidth: isSmallScreen ? MediaQuery.of(context).size.width * 0.95 : 600,
         ),
-        padding: const EdgeInsets.all(20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Header
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFF9933).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
+            // Fixed Header
+            Container(
+              padding: EdgeInsets.fromLTRB(
+                isSmallScreen ? 16 : 20, 
+                isSmallScreen ? 16 : 20, 
+                isSmallScreen ? 16 : 20, 
+                8
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF9933).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      Icons.payment,
+                      color: Color(0xFFFF9933),
+                      size: 24,
+                    ),
                   ),
-                  child: const Icon(
-                    Icons.payment,
-                    color: Color(0xFFFF9933),
-                    size: 24,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Collect Payment',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          'Order #${widget.order.id}',
+                          style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Collect Payment',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                      ),
-                      Text(
-                        'Order #${widget.order.id}',
-                        style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                      ),
-                    ],
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
                   ),
-                ),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
-                ),
-              ],
+                ],
+              ),
             ),
+            
+            // Scrollable Content
+            Flexible(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  isSmallScreen ? 16 : 20, 
+                  0, 
+                  isSmallScreen ? 16 : 20, 
+                  8
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
             
             const SizedBox(height: 20),
             
-            // Payment Summary Card
+                    // Payment Summary Card (Compact)
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [const Color(0xFFFF9933).withOpacity(0.1), Colors.white],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
+                color: const Color(0xFFFF9933).withOpacity(0.1),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: const Color(0xFFFF9933).withOpacity(0.3)),
               ),
@@ -3879,35 +3918,42 @@ class _OrderCompletionPaymentDialogState extends ConsumerState<OrderCompletionPa
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Total Amount:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+                      Text(
+                        'Total:', 
+                        style: TextStyle(
+                          fontSize: isSmallScreen ? 14 : 16, 
+                          fontWeight: FontWeight.w500
+                        )
+                      ),
                       Text(
                         formatIndianCurrency('₹', widget.order.getGrandTotal(ref.read(settingsProvider))),
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFFFF9933)),
+                        style: TextStyle(
+                          fontSize: isSmallScreen ? 18 : 20, 
+                          fontWeight: FontWeight.bold, 
+                          color: const Color(0xFFFF9933)
+                        ),
                       ),
                     ],
                   ),
-                  if (_totalPaid > 0) ...[
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Paid Amount:', style: TextStyle(fontSize: 14)),
-                        Text(
-                          formatIndianCurrency('₹', _totalPaid),
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.green),
-                        ),
-                      ],
-                    ),
-                  ],
                   if (_remainingAmount > 0.01) ...[
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('Remaining:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+                        Text(
+                          'Remaining:', 
+                          style: TextStyle(
+                            fontSize: isSmallScreen ? 14 : 16, 
+                            fontWeight: FontWeight.w500
+                          )
+                        ),
                         Text(
                           formatIndianCurrency('₹', _remainingAmount),
-                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.red),
+                          style: TextStyle(
+                            fontSize: isSmallScreen ? 16 : 18, 
+                            fontWeight: FontWeight.bold, 
+                            color: Colors.red
+                          ),
                         ),
                       ],
                     ),
@@ -3916,22 +3962,24 @@ class _OrderCompletionPaymentDialogState extends ConsumerState<OrderCompletionPa
               ),
             ),
 
-            const SizedBox(height: 20),
-
-            // Payment Method Selection (Mobile Optimized)
+            SizedBox(height: isSmallScreen ? 16 : 20),            // Payment Method Selection (Mobile Optimized)
             if (!_isFullyPaid) ...[
               Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  'Select Payment Method:',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.grey[700]),
+                  'Payment Method:',
+                  style: TextStyle(
+                    fontSize: isSmallScreen ? 14 : 16, 
+                    fontWeight: FontWeight.w600, 
+                    color: Colors.grey[700]
+                  ),
                 ),
               ),
-              const SizedBox(height: 12),
+              SizedBox(height: isSmallScreen ? 8 : 12),
               
-              // Payment method tabs/buttons for mobile
+              // Payment method selection - horizontal scroll for better space utilization
               SizedBox(
-                height: 50,
+                height: isSmallScreen ? 60 : 50,
                 child: ListView.builder(
                   scrollDirection: Axis.horizontal,
                   itemCount: enabledMethods.length,
@@ -3940,42 +3988,53 @@ class _OrderCompletionPaymentDialogState extends ConsumerState<OrderCompletionPa
                     final isSelected = _selectedMethodId == method.id;
                     
                     return Padding(
-                      padding: const EdgeInsets.only(right: 8),
+                      padding: EdgeInsets.only(
+                        right: 8,
+                        left: index == 0 ? 0 : 0,
+                      ),
                       child: GestureDetector(
                         onTap: () => setState(() => _selectedMethodId = method.id),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: isSmallScreen ? 16 : 16,
+                            vertical: isSmallScreen ? 8 : 8,
+                          ),
                           decoration: BoxDecoration(
                             color: isSelected ? const Color(0xFFFF9933) : Colors.grey[100],
-                            borderRadius: BorderRadius.circular(25),
+                            borderRadius: BorderRadius.circular(isSmallScreen ? 15 : 25),
                             border: Border.all(
                               color: isSelected ? const Color(0xFFFF9933) : Colors.grey[300]!,
+                              width: isSelected ? 2 : 1,
                             ),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               if (method.icon != null)
-                                Text(method.icon!, style: const TextStyle(fontSize: 16))
+                                Text(
+                                  method.icon!, 
+                                  style: TextStyle(fontSize: isSmallScreen ? 18 : 16)
+                                )
                               else
                                 CircleAvatar(
-                                  radius: 10,
+                                  radius: isSmallScreen ? 12 : 10,
                                   backgroundColor: isSelected ? Colors.white : Colors.grey[400],
                                   child: Text(
                                     method.name.substring(0, 1),
                                     style: TextStyle(
-                                      fontSize: 10,
+                                      fontSize: isSmallScreen ? 12 : 10,
                                       fontWeight: FontWeight.bold,
                                       color: isSelected ? const Color(0xFFFF9933) : Colors.white,
                                     ),
                                   ),
                                 ),
-                              const SizedBox(width: 8),
+                              SizedBox(width: isSmallScreen ? 10 : 8),
                               Text(
                                 method.name,
                                 style: TextStyle(
                                   color: isSelected ? Colors.white : Colors.grey[700],
                                   fontWeight: FontWeight.w500,
+                                  fontSize: isSmallScreen ? 14 : 12,
                                 ),
                               ),
                             ],
@@ -3987,7 +4046,7 @@ class _OrderCompletionPaymentDialogState extends ConsumerState<OrderCompletionPa
                 ),
               ),
 
-              const SizedBox(height: 20),
+              SizedBox(height: isSmallScreen ? 12 : 20),
 
               // Amount Input Section
               if (_selectedMethod != null) ...[
@@ -4001,9 +4060,19 @@ class _OrderCompletionPaymentDialogState extends ConsumerState<OrderCompletionPa
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Enter ${_selectedMethod!.name} Amount:',
-                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                      Row(
+                        children: [
+                          if (_selectedMethod!.icon != null) ...[
+                            Text(_selectedMethod!.icon!, style: const TextStyle(fontSize: 20)),
+                            const SizedBox(width: 8),
+                          ],
+                          Expanded(
+                            child: Text(
+                              'Enter ${_selectedMethod!.name} Amount:',
+                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 12),
                       
@@ -4011,31 +4080,75 @@ class _OrderCompletionPaymentDialogState extends ConsumerState<OrderCompletionPa
                       TextField(
                         controller: _controllers.putIfAbsent(_selectedMethod!.id, () => TextEditingController()),
                         decoration: InputDecoration(
-                          hintText: 'Enter amount (Max: ₹${_remainingAmount.toStringAsFixed(2)})',
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                          hintText: isSmallScreen 
+                              ? 'Max: ₹${_remainingAmount.toStringAsFixed(2)}'
+                              : 'Enter amount (Max: ₹${_remainingAmount.toStringAsFixed(2)})',
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                           focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(12),
                             borderSide: const BorderSide(color: Color(0xFFFF9933), width: 2),
                           ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: Colors.grey[300]!, width: 1),
+                          ),
                           prefixText: '₹ ',
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          prefixStyle: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFFFF9933),
+                          ),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 16, 
+                            vertical: isSmallScreen ? 16 : 12,
+                          ),
+                          filled: true,
+                          fillColor: Colors.grey[50],
+                        ),
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
                         ),
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
                         onChanged: (value) => setState(() {}),
+                        autofocus: isSmallScreen,
                       ),
                       
                       const SizedBox(height: 12),
                       
-                      // Quick amount buttons
-                      Row(
-                        children: [
-                          _buildQuickAmountButton('Full', _remainingAmount),
-                          const SizedBox(width: 8),
-                          _buildQuickAmountButton('₹500', 500),
-                          const SizedBox(width: 8),
-                          _buildQuickAmountButton('₹100', 100),
-                        ],
-                      ),
+                      // Quick amount buttons (responsive layout)
+                      if (isSmallScreen) ...[
+                        // Mobile layout - stacked buttons
+                        Column(
+                          children: [
+                            SizedBox(
+                              width: double.infinity,
+                              child: _buildQuickAmountButton('Full Amount', _remainingAmount, isInRow: false),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                _buildQuickAmountButton('₹500', 500, isInRow: true),
+                                const SizedBox(width: 8),
+                                _buildQuickAmountButton('₹100', 100, isInRow: true),
+                                const SizedBox(width: 8),
+                                _buildQuickAmountButton('₹50', 50, isInRow: true),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ] else ...[
+                        // Desktop layout - horizontal buttons
+                        Row(
+                          children: [
+                            _buildQuickAmountButton('Full', _remainingAmount, isInRow: true),
+                            const SizedBox(width: 8),
+                            _buildQuickAmountButton('₹500', 500, isInRow: true),
+                            const SizedBox(width: 8),
+                            _buildQuickAmountButton('₹100', 100, isInRow: true),
+                          ],
+                        ),
+                      ],
                       
                       const SizedBox(height: 16),
                       
@@ -4099,12 +4212,16 @@ class _OrderCompletionPaymentDialogState extends ConsumerState<OrderCompletionPa
 
             // Added Payments List
             if (_payments.isNotEmpty) ...[
-              const SizedBox(height: 20),
+              SizedBox(height: isSmallScreen ? 12 : 20),
               Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
                   'Added Payments:',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.grey[700]),
+                  style: TextStyle(
+                    fontSize: isSmallScreen ? 14 : 16, 
+                    fontWeight: FontWeight.w600, 
+                    color: Colors.grey[700]
+                  ),
                 ),
               ),
               const SizedBox(height: 8),
@@ -4146,23 +4263,114 @@ class _OrderCompletionPaymentDialogState extends ConsumerState<OrderCompletionPa
               ),
             ],
 
-            const Spacer(),
-
-            // Action buttons
-            Padding(
-              padding: const EdgeInsets.only(top: 20),
-              child: Row(
+                    // Add some bottom padding for the last item
+                    SizedBox(height: isSmallScreen ? 12 : 20),
+                  ],
+                ),
+              ),
+            ),
+            
+            // Fixed Footer with Action Buttons
+            Container(
+              padding: EdgeInsets.fromLTRB(
+                isSmallScreen ? 16 : 20, 
+                8, 
+                isSmallScreen ? 16 : 20, 
+                isSmallScreen ? 16 : 20
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border(
+                  top: BorderSide(color: Colors.grey[200]!, width: 1),
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Colors.grey),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  // Payment Status Summary (for small screens)
+                  if (isSmallScreen && (_totalPaid > 0 || _remainingAmount > 0.01)) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[50],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey[200]!),
                       ),
-                      child: const Text('Cancel', style: TextStyle(fontSize: 16)),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          if (_totalPaid > 0) ...[
+                            Text(
+                              'Paid: ₹${_totalPaid.toStringAsFixed(2)}',
+                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.green),
+                            ),
+                          ],
+                          if (_remainingAmount > 0.01) ...[
+                            Text(
+                              'Remaining: ₹${_remainingAmount.toStringAsFixed(2)}',
+                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.red),
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
+                    const SizedBox(height: 12),
+                  ],
+                  
+                  // Action buttons
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: Colors.grey),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          child: const Text('Cancel', style: TextStyle(fontSize: 16)),
+                        ),
+                      ),
+                      if (_isFullyPaid) ...[
+                        const SizedBox(width: 12),
+                        Expanded(
+                          flex: 2,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(colors: [Colors.green, Colors.lightGreen]),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: ElevatedButton(
+                              onPressed: () {
+                                widget.onPaymentComplete(_payments);
+                                Navigator.pop(context);
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.transparent,
+                                shadowColor: Colors.transparent,
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.check_circle, color: Colors.white, size: 20),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Complete Order',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ],
               ),
@@ -4173,40 +4381,44 @@ class _OrderCompletionPaymentDialogState extends ConsumerState<OrderCompletionPa
     );
   }
 
-  Widget _buildQuickAmountButton(String label, double amount) {
-    final isFullButton = label == 'Full';
+  Widget _buildQuickAmountButton(String label, double amount, {bool isInRow = true}) {
+    final isFullButton = label.contains('Full');
     final isEnabled = _remainingAmount >= amount;
     final controller = _selectedMethod != null ? _controllers[_selectedMethod!.id] : null;
     final enteredAmount = controller != null ? double.tryParse(controller.text) : null;
     final isCurrentlySelected = enteredAmount != null && (enteredAmount - amount).abs() <= 0.01;
+    final isSmallScreen = MediaQuery.of(context).size.width < 600;
     
-    return Expanded(
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: isFullButton && isCurrentlySelected
-              ? const LinearGradient(colors: [Colors.green, Colors.lightGreen])
-              : null,
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: OutlinedButton(
-          onPressed: isEnabled ? () => _fillAmount(amount) : null,
-          style: OutlinedButton.styleFrom(
-            side: BorderSide(
-              color: isCurrentlySelected 
-                  ? Colors.transparent 
-                  : const Color(0xFFFF9933).withOpacity(isEnabled ? 0.5 : 0.3),
-            ),
-            backgroundColor: isCurrentlySelected && !isFullButton 
-                ? const Color(0xFFFF9933).withOpacity(0.1) 
-                : Colors.transparent,
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+    Widget button = Container(
+      decoration: BoxDecoration(
+        gradient: isFullButton && isCurrentlySelected
+            ? const LinearGradient(colors: [Colors.green, Colors.lightGreen])
+            : null,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: OutlinedButton(
+        onPressed: isEnabled ? () => _fillAmount(amount) : null,
+        style: OutlinedButton.styleFrom(
+          side: BorderSide(
+            color: isCurrentlySelected 
+                ? Colors.transparent 
+                : const Color(0xFFFF9933).withOpacity(isEnabled ? 0.5 : 0.3),
           ),
+          backgroundColor: isCurrentlySelected && !isFullButton 
+              ? const Color(0xFFFF9933).withOpacity(0.1) 
+              : Colors.transparent,
+          padding: EdgeInsets.symmetric(
+            vertical: isSmallScreen ? 12 : 8,
+            horizontal: isSmallScreen ? 16 : 8,
+          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+        child: FittedBox(
           child: Text(
             label,
             style: TextStyle(
-              fontSize: 12,
-              fontWeight: isCurrentlySelected ? FontWeight.bold : FontWeight.normal,
+              fontSize: isSmallScreen ? 14 : 12,
+              fontWeight: isCurrentlySelected ? FontWeight.bold : FontWeight.w500,
               color: isFullButton && isCurrentlySelected
                   ? Colors.white
                   : isEnabled 
@@ -4217,6 +4429,14 @@ class _OrderCompletionPaymentDialogState extends ConsumerState<OrderCompletionPa
         ),
       ),
     );
+    
+    // For buttons in a row that need to expand
+    if (isInRow && !isFullButton) {
+      return Expanded(child: button);
+    }
+    
+    // For full width buttons or standalone buttons
+    return button;
   }
 
   void _fillAmount(double amount) {
