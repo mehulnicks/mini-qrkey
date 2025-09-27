@@ -50,9 +50,6 @@ class OrderItems extends Table {
   TextColumn get notes => text().nullable()();
   IntColumn get createdAtEpoch => integer()();
   IntColumn get updatedAtEpoch => integer()();
-
-  @override
-  Set<Column> get primaryKey => {id};
 }
 
 @DriftDatabase(tables: [MenuItems, Orders, OrderItems])

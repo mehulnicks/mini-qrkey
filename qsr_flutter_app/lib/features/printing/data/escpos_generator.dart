@@ -99,7 +99,300 @@ class KotItem {
   });
 }
 
+// Bill Template for detailed receipts
+class BillTemplate {
+  final String storeName;
+  final String address;
+  final String phone;
+  final String? email;
+  final String? gstNumber;
+  final String billNumber;
+  final DateTime timestamp;
+  final String orderSource; // e.g., "Online", "POS", "Swiggy"
+  final String? customerName;
+  final String? customerPhone;
+  final String? orderType; // "Takeaway", "Dine-in", "Delivery"
+  final String? tokenNumber;
+  final String? tableNumber;
+  final List<BillItem> items;
+  final double subtotal;
+  final double discount;
+  final double fixedDiscount;
+  final double containerCharge;
+  final double deliveryCharge;
+  final double packagingCharge;
+  final double serviceCharge;
+  final double cgst;
+  final double sgst;
+  final double grandTotal;
+  final String paymentMethod;
+  final String? transactionId;
+  final String? customerNotes;
+  final String? rewardType;
+  final String? deliveryPasscode;
+  final String? pickupBarcode;
+  final String? gstinFooter;
+  final String? fsaiNumber;
+
+  const BillTemplate({
+    required this.storeName,
+    required this.address,
+    required this.phone,
+    this.email,
+    this.gstNumber,
+    required this.billNumber,
+    required this.timestamp,
+    required this.orderSource,
+    this.customerName,
+    this.customerPhone,
+    this.orderType,
+    this.tokenNumber,
+    this.tableNumber,
+    required this.items,
+    required this.subtotal,
+    this.discount = 0.0,
+    this.fixedDiscount = 0.0,
+    this.containerCharge = 0.0,
+    this.deliveryCharge = 0.0,
+    this.packagingCharge = 0.0,
+    this.serviceCharge = 0.0,
+    this.cgst = 0.0,
+    this.sgst = 0.0,
+    required this.grandTotal,
+    required this.paymentMethod,
+    this.transactionId,
+    this.customerNotes,
+    this.rewardType,
+    this.deliveryPasscode,
+    this.pickupBarcode,
+    this.gstinFooter,
+    this.fsaiNumber,
+  });
+}
+
+class BillItem {
+  final String name;
+  final int quantity;
+  final double unitPrice;
+  final double amount;
+  final String? size; // e.g., "500 Ml"
+
+  const BillItem({
+    required this.name,
+    required this.quantity,
+    required this.unitPrice,
+    required this.amount,
+    this.size,
+  });
+}
+
 class EscPosGenerator {
+  // Generate detailed bill receipt
+  static Uint8List generateBill(BillTemplate template) {
+    List<int> commands = [];
+
+    // Initialize printer
+    commands.addAll(EscPosCommands.init());
+
+    // Header - Store Name
+    commands.addAll(EscPosCommands.alignCenter());
+    commands.addAll(EscPosCommands.bold(true));
+    commands.addAll(EscPosCommands.doubleSize(true));
+    commands.addAll(EscPosCommands.text(template.storeName));
+    commands.addAll(EscPosCommands.crlf);
+    commands.addAll(EscPosCommands.bold(false));
+    commands.addAll(EscPosCommands.doubleSize(false));
+
+    // Store Address and Contact
+    commands.addAll(EscPosCommands.text(template.address));
+    commands.addAll(EscPosCommands.crlf);
+    commands.addAll(EscPosCommands.text('Ph No - ${template.phone}'));
+    commands.addAll(EscPosCommands.crlf);
+    if (template.email != null) {
+      commands.addAll(EscPosCommands.text('Email: ${template.email}'));
+      commands.addAll(EscPosCommands.crlf);
+    }
+    commands.addAll(EscPosCommands.crlf);
+
+    // Order Source and Customer Info
+    commands.addAll(EscPosCommands.alignLeft());
+    commands.addAll(EscPosCommands.text('From ${template.orderSource}'));
+    if (template.transactionId != null) {
+      commands.addAll(EscPosCommands.text('[${template.transactionId}]'));
+    }
+    commands.addAll(EscPosCommands.crlf);
+    
+    if (template.customerName != null) {
+      commands.addAll(EscPosCommands.text('Name: ${template.customerName}'));
+      commands.addAll(EscPosCommands.crlf);
+    }
+    commands.addAll(EscPosCommands.crlf);
+
+    // Date, Time, and Bill Details
+    String dateStr = _formatDate(template.timestamp);
+    String timeStr = _formatTime(template.timestamp);
+    commands.addAll(EscPosCommands.text('Date: $dateStr   ${template.orderSource}'));
+    commands.addAll(EscPosCommands.crlf);
+    commands.addAll(EscPosCommands.text('$timeStr'));
+    commands.addAll(EscPosCommands.crlf);
+    commands.addAll(EscPosCommands.text('Cashier:           Bill No.: ${template.billNumber}'));
+    commands.addAll(EscPosCommands.crlf);
+    commands.addAll(EscPosCommands.text('Autoaccept'));
+    commands.addAll(EscPosCommands.crlf);
+    
+    if (template.tokenNumber != null) {
+      commands.addAll(EscPosCommands.text('Token No.: ${template.tokenNumber}'));
+      commands.addAll(EscPosCommands.crlf);
+    }
+    
+    commands.addAll(EscPosCommands.separator());
+
+    // Items Header
+    commands.addAll(EscPosCommands.text('Item${' ' * 12}Qty. Price Amount'));
+    commands.addAll(EscPosCommands.crlf);
+    commands.addAll(EscPosCommands.separator());
+
+    // Items List
+    for (final item in template.items) {
+      // Item name (may span multiple lines)
+      String itemName = item.name;
+      if (item.size != null) {
+        itemName += ' (${item.size})';
+      }
+      
+      // Format item line with proper spacing
+      if (itemName.length > 16) {
+        commands.addAll(EscPosCommands.text(itemName));
+        commands.addAll(EscPosCommands.crlf);
+        // Indent the quantity, price, amount line
+        String itemDetails = '${' ' * 16}${item.quantity} ${item.unitPrice.toStringAsFixed(2).padLeft(6)} ${item.amount.toStringAsFixed(2).padLeft(7)}';
+        commands.addAll(EscPosCommands.text(itemDetails));
+      } else {
+        String itemLine = itemName.padRight(16) + 
+                         '${item.quantity} ${item.unitPrice.toStringAsFixed(2).padLeft(6)} ${item.amount.toStringAsFixed(2).padLeft(7)}';
+        commands.addAll(EscPosCommands.text(itemLine));
+      }
+      commands.addAll(EscPosCommands.crlf);
+    }
+
+    commands.addAll(EscPosCommands.separator());
+
+    // Totals section
+    int totalQty = template.items.fold(0, (sum, item) => sum + item.quantity);
+    commands.addAll(EscPosCommands.text('Total Qty: $totalQty${' ' * (32 - 12 - totalQty.toString().length)}Sub'));
+    commands.addAll(EscPosCommands.crlf);
+    commands.addAll(EscPosCommands.text('${' ' * 20}Total   ${template.subtotal.toStringAsFixed(2).padLeft(6)}'));
+    commands.addAll(EscPosCommands.crlf);
+
+    // Discounts
+    if (template.discount > 0) {
+      commands.addAll(EscPosCommands.text('${' ' * 16}Discount Fixed  (${template.discount.toStringAsFixed(2)})'));
+      commands.addAll(EscPosCommands.crlf);
+    }
+
+    // Additional charges
+    if (template.containerCharge > 0) {
+      commands.addAll(EscPosCommands.text('Container Charge${' ' * 14}${template.containerCharge.toStringAsFixed(2).padLeft(4)}'));
+      commands.addAll(EscPosCommands.crlf);
+    }
+
+    if (template.deliveryCharge > 0) {
+      commands.addAll(EscPosCommands.text('Delivery Charge${' ' * 15}${template.deliveryCharge.toStringAsFixed(2).padLeft(4)}'));
+      commands.addAll(EscPosCommands.crlf);
+    }
+
+    if (template.packagingCharge > 0) {
+      commands.addAll(EscPosCommands.text('Packaging Charge${' ' * 14}${template.packagingCharge.toStringAsFixed(2).padLeft(4)}'));
+      commands.addAll(EscPosCommands.crlf);
+    }
+
+    if (template.serviceCharge > 0) {
+      commands.addAll(EscPosCommands.text('Service Charge${' ' * 16}${template.serviceCharge.toStringAsFixed(2).padLeft(4)}'));
+      commands.addAll(EscPosCommands.crlf);
+    }
+
+    commands.addAll(EscPosCommands.separator());
+
+    // Grand Total
+    commands.addAll(EscPosCommands.bold(true));
+    commands.addAll(EscPosCommands.doubleSize(true));
+    commands.addAll(EscPosCommands.alignCenter());
+    commands.addAll(EscPosCommands.text('Grand Total   ₹ ${template.grandTotal.toStringAsFixed(2)}'));
+    commands.addAll(EscPosCommands.crlf);
+    commands.addAll(EscPosCommands.bold(false));
+    commands.addAll(EscPosCommands.doubleSize(false));
+    commands.addAll(EscPosCommands.alignLeft());
+
+    // Payment method
+    commands.addAll(EscPosCommands.text('Paid via ${template.paymentMethod}'));
+    if (template.orderSource.isNotEmpty) {
+      commands.addAll(EscPosCommands.text(' [${template.orderSource}]'));
+    }
+    commands.addAll(EscPosCommands.crlf);
+    commands.addAll(EscPosCommands.separator());
+
+    // Customer Notes
+    if (template.customerNotes != null && template.customerNotes!.isNotEmpty) {
+      commands.addAll(EscPosCommands.text('Customer Notes: ${template.customerNotes}'));
+      commands.addAll(EscPosCommands.crlf);
+    }
+
+    // Reward Type
+    if (template.rewardType != null) {
+      commands.addAll(EscPosCommands.text('Reward Type : ${template.rewardType}'));
+      commands.addAll(EscPosCommands.crlf);
+    }
+
+    commands.addAll(EscPosCommands.separator());
+
+    // Delivery/Pickup codes
+    if (template.deliveryPasscode != null) {
+      commands.addAll(EscPosCommands.alignCenter());
+      commands.addAll(EscPosCommands.bold(true));
+      commands.addAll(EscPosCommands.text('Delivery Passcode: ${template.deliveryPasscode}'));
+      commands.addAll(EscPosCommands.crlf);
+      commands.addAll(EscPosCommands.text('Scan to Mark food ready'));
+      commands.addAll(EscPosCommands.crlf);
+      commands.addAll(EscPosCommands.bold(false));
+      commands.addAll(EscPosCommands.alignLeft());
+    }
+
+    // Barcode for pickup
+    if (template.pickupBarcode != null) {
+      commands.addAll(EscPosCommands.alignCenter());
+      // Add barcode commands here (specific to printer model)
+      commands.addAll(EscPosCommands.text(template.pickupBarcode!));
+      commands.addAll(EscPosCommands.crlf);
+      commands.addAll(EscPosCommands.text('Pickup barcode for ${template.orderSource} delivery partner'));
+      commands.addAll(EscPosCommands.crlf);
+      commands.addAll(EscPosCommands.alignLeft());
+    }
+
+    commands.addAll(EscPosCommands.separator());
+
+    // Footer - GST and FSAI details
+    if (template.gstinFooter != null) {
+      commands.addAll(EscPosCommands.alignCenter());
+      commands.addAll(EscPosCommands.text('GSTIN : ${template.gstinFooter}'));
+      commands.addAll(EscPosCommands.crlf);
+    }
+
+    if (template.fsaiNumber != null) {
+      commands.addAll(EscPosCommands.text('FSSAI : ${template.fsaiNumber}'));
+      commands.addAll(EscPosCommands.crlf);
+    }
+
+    commands.addAll(EscPosCommands.alignCenter());
+    commands.addAll(EscPosCommands.text('Thanks For Ordering !!!'));
+    commands.addAll(EscPosCommands.crlf);
+    commands.addAll(EscPosCommands.crlf);
+
+    // Cut paper
+    commands.addAll(EscPosCommands.cut());
+
+    return Uint8List.fromList(commands);
+  }
+
   static Uint8List generateKot(KotTemplate template) {
     List<int> commands = [];
 

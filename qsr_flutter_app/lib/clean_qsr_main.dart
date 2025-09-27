@@ -14,6 +14,11 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:googleapis_auth/auth_io.dart';
 import 'package:http/http.dart' as http;
+import 'features/printing/data/printing_service.dart';
+import 'features/printing/data/escpos_generator.dart';
+import 'package:share_plus/share_plus.dart';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 
 // Google Auth Client for Google Drive API
 class GoogleAuthClient extends http.BaseClient {
@@ -1132,11 +1137,38 @@ class GoogleDriveService {
 
 // WhatsApp Service for Bill Sharing
 class WhatsAppService {
+  static Future<void> shareBillAsPDF({
+    required Order order,
+    required AppSettings settings,
+  }) async {
+    try {
+      // Generate PDF bill file
+      final filePath = await PDFBillGenerator.generateQuickReceiptPDF(
+        order: order,
+        settings: settings,
+      );
+      
+      // Share the file
+      await Share.shareXFiles(
+        [XFile(filePath)],
+        text: 'Bill from ${settings.businessName}\nOrder #${order.id.substring(order.id.length - 8)}',
+        subject: 'Receipt - ${settings.businessName}',
+      );
+    } catch (e) {
+      print('Error sharing bill as PDF: $e');
+      rethrow;
+    }
+  }
+
   static Future<void> shareBill({
     required Order order,
     required AppSettings settings,
     String? customMessage,
+    bool asPDF = false,
   }) async {
+    if (asPDF) {
+      return shareBillAsPDF(order: order, settings: settings);
+    }
     try {
       final billContent = _generateWhatsAppBillContent(order, settings);
       final message = customMessage ?? billContent;
@@ -1171,94 +1203,8 @@ class WhatsAppService {
   }
 
   static String _generateWhatsAppBillContent(Order order, AppSettings settings) {
-    final buffer = StringBuffer();
-    
-    // Header with business name
-    buffer.writeln('🧾 *${settings.businessName}*');
-    buffer.writeln('📱 ${settings.phone}');
-    if (settings.address.isNotEmpty) {
-      buffer.writeln('📍 ${settings.address}');
-    }
-    buffer.writeln('━━━━━━━━━━━━━━━━━━━━━');
-    
-    // Order details
-    buffer.writeln('📋 *Order Details*');
-    buffer.writeln('🆔 Order #${order.id.substring(order.id.length - 8)}');
-    buffer.writeln('📅 ${_formatDateTime(order.createdAt)}');
-    buffer.writeln('🍽️ Type: ${_getOrderTypeEmoji(order.type)} ${_getOrderTypeLabel(order.type)}');
-    
-    if (order.customer != null) {
-      buffer.writeln('👤 Customer: ${order.customer!.name ?? 'Guest'}');
-    }
-    buffer.writeln('');
-    
-    // Items
-    buffer.writeln('🛒 *Items Ordered:*');
-    for (final item in order.items) {
-      buffer.writeln('• ${item.quantity}x ${item.menuItem.name}');
-      if (item.hasDiscount) {
-        buffer.writeln('  ₹${item.unitPrice.toStringAsFixed(2)} each');
-        buffer.writeln('  Subtotal: ₹${item.subtotal.toStringAsFixed(2)}');
-        buffer.writeln('  💸 Discount: -₹${item.discountAmount.toStringAsFixed(2)}');
-        buffer.writeln('  Total: ₹${item.total.toStringAsFixed(2)}');
-      } else {
-        buffer.writeln('  ₹${item.unitPrice.toStringAsFixed(2)} each = ₹${item.total.toStringAsFixed(2)}');
-      }
-    }
-    buffer.writeln('');
-    
-    // Bill breakdown
-    buffer.writeln('💰 *Bill Breakdown:*');
-    buffer.writeln('Items Subtotal: ₹${order.itemsSubtotal.toStringAsFixed(2)}');
-    
-    // Show item-level discounts
-    if (order.hasItemDiscounts) {
-      buffer.writeln('💸 Item Discounts: -₹${order.itemsDiscountAmount.toStringAsFixed(2)}');
-      buffer.writeln('After Item Discounts: ₹${order.itemsTotal.toStringAsFixed(2)}');
-    }
-    
-    // Add charges if applicable and enabled
-    if (order.type == OrderType.delivery && settings.deliveryEnabled && order.charges.deliveryCharge > 0) {
-      buffer.writeln('🚚 Delivery: ₹${order.charges.deliveryCharge.toStringAsFixed(2)}');
-    }
-    if ((order.type == OrderType.delivery || order.type == OrderType.takeaway) && settings.packagingEnabled && order.charges.packagingCharge > 0) {
-      buffer.writeln('📦 Packaging: ₹${order.charges.packagingCharge.toStringAsFixed(2)}');
-    }
-    if (order.type == OrderType.dineIn && settings.serviceEnabled && order.charges.serviceCharge > 0) {
-      buffer.writeln('🔧 Service: ₹${order.charges.serviceCharge.toStringAsFixed(2)}');
-    }
-    
-    // Show order-level discount
-    if (order.hasOrderDiscount) {
-      final baseAmount = order.orderDiscount!.applyToSubtotal ? order.subtotal : order.taxableAmount;
-      buffer.writeln('');
-      buffer.writeln('💸 Order Discount: -₹${order.orderDiscountAmount.toStringAsFixed(2)}');
-      if (order.orderDiscount!.reason != null) {
-        buffer.writeln('   (${order.orderDiscount!.reason})');
-      }
-    }
-    
-    // Show tax breakdown
-    final sgstAmount = order.calculateSGST(settings);
-    final cgstAmount = order.calculateCGST(settings);
-    buffer.writeln('💸 SGST (${(settings.sgstRate * 100).toStringAsFixed(1)}%): ₹${sgstAmount.toStringAsFixed(2)}');
-    buffer.writeln('💸 CGST (${(settings.cgstRate * 100).toStringAsFixed(1)}%): ₹${cgstAmount.toStringAsFixed(2)}');
-    buffer.writeln('━━━━━━━━━━━━━━━━━━━━━');
-    buffer.writeln('💳 *Total: ₹${order.getGrandTotal(settings).toStringAsFixed(2)}*');
-    
-    // Show total savings if any discounts
-    if (order.hasDiscounts) {
-      buffer.writeln('🎉 Total Savings: ₹${order.totalDiscountAmount.toStringAsFixed(2)}');
-    }
-    
-    buffer.writeln('━━━━━━━━━━━━━━━━━━━━━');
-    
-    // Footer
-    buffer.writeln('');
-    buffer.writeln('🙏 Thank you for choosing ${settings.businessName}!');
-    buffer.writeln('⭐ Rate us and share your experience');
-    
-    return buffer.toString();
+    // Use the same format as Quick Receipt for consistency
+    return PDFBillGenerator._generateQuickReceiptContent(order, settings);
   }
 
   static String _formatDateTime(DateTime dateTime) {
@@ -1284,6 +1230,281 @@ class WhatsAppService {
         return '🥡';
       case OrderType.delivery:
         return '🚚';
+    }
+  }
+}
+
+// PDF Bill Generator Service for WhatsApp sharing
+class PDFBillGenerator {
+  static Future<String> generateQuickReceiptPDF({
+    required Order order,
+    required AppSettings settings,
+  }) async {
+    try {
+      // Generate the receipt content in text format (same as quick receipt)
+      final receiptContent = _generateQuickReceiptContent(order, settings);
+      
+      // Get temporary directory
+      final directory = await getTemporaryDirectory();
+      final filePath = '${directory.path}/quick_receipt_${order.id.substring(order.id.length - 8)}.txt';
+      
+      // Write the content to a file
+      final file = File(filePath);
+      await file.writeAsString(receiptContent);
+      
+      return filePath;
+    } catch (e) {
+      print('Error generating PDF bill: $e');
+      rethrow;
+    }
+  }
+
+  static String _generateQuickReceiptContent(Order order, AppSettings settings) {
+    final buffer = StringBuffer();
+    
+    // Header
+    buffer.writeln('=' * 42);
+    buffer.writeln('           ${settings.businessName.toUpperCase()}');
+    buffer.writeln('=' * 42);
+    if (settings.phone.isNotEmpty) {
+      buffer.writeln('Phone: ${settings.phone}');
+    }
+    if (settings.address.isNotEmpty) {
+      buffer.writeln('Address: ${settings.address}');
+    }
+    buffer.writeln('-' * 42);
+    
+    // Order info
+    buffer.writeln('Order #: ${order.id.substring(order.id.length - 8)}');
+    buffer.writeln('Date: ${_formatDate(order.createdAt)}');
+    buffer.writeln('Time: ${_formatTime(order.createdAt)}');
+    buffer.writeln('Type: ${_getOrderTypeLabel(order.type)}');
+    
+    if (order.customer != null) {
+      buffer.writeln('Customer: ${order.customer!.name ?? 'Guest'}');
+      if (order.customer!.phone != null) {
+        buffer.writeln('Phone: ${order.customer!.phone}');
+      }
+    }
+    buffer.writeln('-' * 42);
+    
+    // Items
+    buffer.writeln('ITEMS:');
+    buffer.writeln('-' * 42);
+    for (final item in order.items) {
+      buffer.writeln('${item.quantity}x ${item.menuItem.name}');
+      buffer.writeln('   @ Rs.${item.unitPrice.toStringAsFixed(2)} = Rs.${item.total.toStringAsFixed(2)}');
+      if (item.specialInstructions != null && item.specialInstructions!.isNotEmpty) {
+        buffer.writeln('   Note: ${item.specialInstructions}');
+      }
+      buffer.writeln('');
+    }
+    
+    buffer.writeln('-' * 42);
+    
+    // Totals
+    buffer.writeln('Subtotal:        Rs.${order.itemsSubtotal.toStringAsFixed(2)}');
+    
+    if (order.hasItemDiscounts) {
+      buffer.writeln('Item Discounts: -Rs.${order.itemsDiscountAmount.toStringAsFixed(2)}');
+      buffer.writeln('After Discounts: Rs.${order.itemsTotal.toStringAsFixed(2)}');
+    }
+    
+    // Charges
+    if (order.type == OrderType.delivery && settings.deliveryEnabled && order.charges.deliveryCharge > 0) {
+      buffer.writeln('Delivery:        Rs.${order.charges.deliveryCharge.toStringAsFixed(2)}');
+    }
+    if ((order.type == OrderType.delivery || order.type == OrderType.takeaway) && settings.packagingEnabled && order.charges.packagingCharge > 0) {
+      buffer.writeln('Packaging:       Rs.${order.charges.packagingCharge.toStringAsFixed(2)}');
+    }
+    if (order.type == OrderType.dineIn && settings.serviceEnabled && order.charges.serviceCharge > 0) {
+      buffer.writeln('Service:         Rs.${order.charges.serviceCharge.toStringAsFixed(2)}');
+    }
+    
+    // Order discount
+    if (order.hasOrderDiscount) {
+      buffer.writeln('Order Discount: -Rs.${order.orderDiscountAmount.toStringAsFixed(2)}');
+      if (order.orderDiscount!.reason != null) {
+        buffer.writeln('  (${order.orderDiscount!.reason})');
+      }
+    }
+    
+    // Taxes
+    if (settings.sgstRate > 0) {
+      final sgstAmount = order.calculateSGST(settings);
+      buffer.writeln('SGST (${(settings.sgstRate * 100).toStringAsFixed(1)}%):     Rs.${sgstAmount.toStringAsFixed(2)}');
+    }
+    if (settings.cgstRate > 0) {
+      final cgstAmount = order.calculateCGST(settings);
+      buffer.writeln('CGST (${(settings.cgstRate * 100).toStringAsFixed(1)}%):     Rs.${cgstAmount.toStringAsFixed(2)}');
+    }
+    
+    buffer.writeln('=' * 42);
+    buffer.writeln('TOTAL:           Rs.${order.getGrandTotal(settings).toStringAsFixed(2)}');
+    buffer.writeln('=' * 42);
+    
+    // Payment info
+    if (order.payments.isNotEmpty) {
+      buffer.writeln('');
+      buffer.writeln('PAYMENT:');
+      for (final payment in order.payments) {
+        buffer.writeln('${payment.method.toString().split('.').last.toUpperCase()}: Rs.${payment.amount.toStringAsFixed(2)}');
+      }
+    }
+    
+    // Footer
+    buffer.writeln('');
+    buffer.writeln('Thank you for choosing ${settings.businessName}!');
+    buffer.writeln('Please visit again.');
+    buffer.writeln('');
+    buffer.writeln('Generated on: ${_formatDate(DateTime.now())} ${_formatTime(DateTime.now())}');
+    buffer.writeln('=' * 42);
+    
+    return buffer.toString();
+  }
+
+  static String _formatDate(DateTime dateTime) {
+    return '${dateTime.day.toString().padLeft(2, '0')}/${dateTime.month.toString().padLeft(2, '0')}/${dateTime.year}';
+  }
+
+  static String _formatTime(DateTime dateTime) {
+    return '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+  }
+
+  static String _getOrderTypeLabel(OrderType type) {
+    switch (type) {
+      case OrderType.dineIn:
+        return 'Dine In';
+      case OrderType.takeaway:
+        return 'Takeaway';
+      case OrderType.delivery:
+        return 'Delivery';
+    }
+  }
+}
+
+// Bill Printing Service for thermal printers
+class BillPrintingService {
+  static Future<bool> printOrderBill({
+    required Order order,
+    required AppSettings settings,
+    required PrintingService printingService,
+    String orderSource = 'POS',
+    String? transactionId,
+    String? deliveryPasscode,
+  }) async {
+    try {
+      // Convert order items to bill items
+      final billItems = order.items.map((item) => BillItem(
+        name: item.menuItem.name,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        amount: item.total,
+        size: null, // Add size info if available in your menu items
+      )).toList();
+
+      // Generate unique bill number
+      final billNumber = _generateBillNumber(order);
+      
+      // Determine payment method
+      String paymentMethod = 'Cash';
+      if (order.payments.isNotEmpty) {
+        paymentMethod = order.payments.first.method.toString().split('.').last;
+        paymentMethod = paymentMethod[0].toUpperCase() + paymentMethod.substring(1);
+      }
+
+      // Get customer info
+      final customerName = order.customer?.name ?? 'Guest';
+      final customerPhone = order.customer?.phone;
+
+      // Calculate totals
+      final grandTotal = order.getGrandTotal(settings);
+
+      // Print using the detailed bill template
+      return await printingService.printBill(
+        storeName: settings.businessName,
+        address: settings.address,
+        phone: settings.phone,
+        email: settings.email.isNotEmpty ? settings.email : null,
+        billNumber: billNumber,
+        timestamp: order.createdAt,
+        orderSource: orderSource,
+        customerName: customerName,
+        customerPhone: customerPhone,
+        orderType: _getOrderTypeDisplayName(order.type),
+        tokenNumber: order.id.substring(order.id.length - 6), // Last 6 chars as token
+        items: billItems,
+        subtotal: order.itemsTotal,
+        discount: order.itemsDiscountAmount,
+        fixedDiscount: order.orderDiscountAmount,
+        containerCharge: 0.0, // Add if you have container charges
+        deliveryCharge: order.charges.deliveryCharge,
+        packagingCharge: order.charges.packagingCharge,
+        serviceCharge: order.charges.serviceCharge,
+        cgst: order.getCgstAmount(settings),
+        sgst: order.getSgstAmount(settings),
+        grandTotal: grandTotal,
+        paymentMethod: paymentMethod,
+        transactionId: transactionId,
+        customerNotes: order.notes,
+        rewardType: null, // Add reward system if available
+        deliveryPasscode: deliveryPasscode,
+        pickupBarcode: null, // Add barcode generation if needed
+        gstinFooter: null, // Add GSTIN if business is GST registered
+        fsaiNumber: null, // Add FSSAI number if available
+      );
+    } catch (e) {
+      print('Error printing bill: $e');
+      return false;
+    }
+  }
+
+  static String _generateBillNumber(Order order) {
+    // Generate bill number based on timestamp and order ID
+    final timestamp = order.createdAt;
+    final dateStr = '${timestamp.day.toString().padLeft(2, '0')}${timestamp.month.toString().padLeft(2, '0')}${timestamp.year.toString().substring(2)}';
+    final timeStr = '${timestamp.hour.toString().padLeft(2, '0')}${timestamp.minute.toString().padLeft(2, '0')}';
+    final orderSuffix = order.id.substring(order.id.length - 4);
+    return '$dateStr$timeStr$orderSuffix';
+  }
+
+  static String _getOrderTypeDisplayName(OrderType type) {
+    switch (type) {
+      case OrderType.dineIn:
+        return 'Dine-in';
+      case OrderType.takeaway:
+        return 'Takeaway';
+      case OrderType.delivery:
+        return 'Delivery';
+    }
+  }
+
+  // Print simplified receipt for quick service
+  static Future<bool> printQuickReceipt({
+    required Order order,
+    required AppSettings settings,
+    required PrintingService printingService,
+  }) async {
+    try {
+      // Use KOT template for quick receipt
+      final kotItems = order.items.map((item) => KotItem(
+        quantity: item.quantity,
+        name: item.menuItem.name,
+        notes: item.specialInstructions,
+      )).toList();
+
+      return await printingService.printKot(
+        storeName: settings.businessName,
+        orderType: order.type.toString().split('.').last,
+        tokenOrTable: order.id.substring(order.id.length - 6),
+        server: 'POS',
+        timestamp: order.createdAt,
+        deviceId: 'QSR-APP',
+        items: kotItems,
+      );
+    } catch (e) {
+      print('Error printing quick receipt: $e');
+      return false;
     }
   }
 }
@@ -1875,7 +2096,12 @@ void showOptimizedToast(BuildContext context, String message, {
       backgroundColor: backgroundColor,
       duration: displayDuration,
       behavior: SnackBarBehavior.floating,
-      margin: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(
+        left: 16,
+        right: 16,
+        bottom: 90, // Extra margin to avoid bottom navigation overlap
+        top: 16,
+      ),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
       ),
@@ -7831,9 +8057,6 @@ class OrderHistoryScreen extends ConsumerWidget {
   }
 
   void _printOrderBill(BuildContext context, Order order, AppSettings settings) {
-    
-    final billContent = _generateOrderBillContent(order, settings);
-    
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -7841,27 +8064,222 @@ class OrderHistoryScreen extends ConsumerWidget {
           children: [
             Icon(Icons.print, color: Color(0xFFFF9933)),
             SizedBox(width: 8),
-            Text('Print Bill'),
+            Text('Print Bill Options'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Choose how to print the bill for Order #${order.id.substring(order.id.length - 8)}',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            
+            // Detailed Bill Option
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.receipt_long, color: Color(0xFFFF9933)),
+                title: const Text('Detailed Bill'),
+                subtitle: const Text('Complete receipt with all charges, taxes, and GST details'),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await _printDetailedBill(context, order, settings);
+                },
+              ),
+            ),
+            
+            const SizedBox(height: 8),
+            
+            // Quick Receipt Option
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.receipt, color: Colors.green),
+                title: const Text('Quick Receipt'),
+                subtitle: const Text('Simple receipt with items and total only'),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await _printQuickReceipt(context, order, settings);
+                },
+              ),
+            ),
+            
+            const SizedBox(height: 8),
+            
+            // Preview Option
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.preview, color: Colors.blue),
+                title: const Text('Preview Bill'),
+                subtitle: const Text('View formatted bill before printing'),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                onTap: () {
+                  Navigator.pop(context);
+                  _previewBill(context, order, settings);
+                },
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _printDetailedBill(BuildContext context, Order order, AppSettings settings) async {
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('Preparing detailed bill...'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      // Use the actual PrintingService and BillPrintingService
+      final printingService = PrintingService();
+      final success = await BillPrintingService.printOrderBill(
+        order: order,
+        settings: settings,
+        printingService: printingService,
+        orderSource: 'POS',
+      );
+
+      Navigator.pop(context); // Close loading dialog
+      
+      if (success) {
+        // Show success message
+        showOptimizedToast(
+          context,
+          'Detailed bill sent to thermal printer!',
+          color: Colors.green,
+          icon: Icons.check_circle,
+        );
+      } else {
+        // Show warning - printer not connected but bill formatted successfully
+        showOptimizedToast(
+          context,
+          'Bill formatted successfully. Connect thermal printer to print.',
+          color: Colors.orange,
+          icon: Icons.warning,
+        );
+      }
+    } catch (e) {
+      Navigator.pop(context); // Close loading dialog
+      
+      // Show error message
+      showOptimizedToast(
+        context,
+        'Print failed: ${e.toString()}',
+        color: Colors.red,
+        icon: Icons.error,
+      );
+    }
+  }
+
+  Future<void> _printQuickReceipt(BuildContext context, Order order, AppSettings settings) async {
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('Printing quick receipt...'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      // Use the actual PrintingService and BillPrintingService
+      final printingService = PrintingService();
+      final success = await BillPrintingService.printQuickReceipt(
+        order: order,
+        settings: settings,
+        printingService: printingService,
+      );
+
+      Navigator.pop(context); // Close loading dialog
+      
+      if (success) {
+        // Show success message
+        showOptimizedToast(
+          context,
+          'Quick receipt printed successfully!',
+          color: Colors.green,
+          icon: Icons.check_circle,
+        );
+      } else {
+        // Show warning - printer not connected but receipt formatted successfully
+        showOptimizedToast(
+          context,
+          'Receipt formatted successfully. Connect thermal printer to print.',
+          color: Colors.orange,
+          icon: Icons.warning,
+        );
+      }
+    } catch (e) {
+      Navigator.pop(context); // Close loading dialog
+      
+      // Show error message
+      showOptimizedToast(
+        context,
+        'Print failed: ${e.toString()}',
+        color: Colors.red,
+        icon: Icons.error,
+      );
+    }
+  }
+
+  void _previewBill(BuildContext context, Order order, AppSettings settings) {
+    final billContent = _generateDetailedBillPreview(order, settings);
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.preview, color: Color(0xFFFF9933)),
+            SizedBox(width: 8),
+            Text('Bill Preview'),
           ],
         ),
         content: SizedBox(
           width: double.maxFinite,
-          height: 400,
+          height: 500,
           child: SingleChildScrollView(
             child: Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 border: Border.all(color: Colors.grey[300]!),
                 borderRadius: BorderRadius.circular(8),
+                color: Colors.grey[50],
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    billContent,
-                    style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                  ),
-                ],
+              child: Text(
+                billContent,
+                style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 11,
+                  height: 1.2,
+                ),
               ),
             ),
           ),
@@ -7873,14 +8291,11 @@ class OrderHistoryScreen extends ConsumerWidget {
           ),
           ElevatedButton.icon(
             onPressed: () {
-              // In a real app, this would send to printer
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Bill sent to printer!')),
-              );
               Navigator.pop(context);
+              _printDetailedBill(context, order, settings);
             },
             icon: const Icon(Icons.print),
-            label: const Text('Print'),
+            label: const Text('Print This'),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFFF9933),
               foregroundColor: Colors.white,
@@ -7889,6 +8304,100 @@ class OrderHistoryScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  String _generateDetailedBillPreview(Order order, AppSettings settings) {
+    final buffer = StringBuffer();
+    final grandTotal = order.getGrandTotal(settings);
+    
+    // Header
+    buffer.writeln('================================');
+    buffer.writeln('        ${settings.businessName}');
+    buffer.writeln('================================');
+    buffer.writeln(settings.address);
+    buffer.writeln('Ph No - ${settings.phone}');
+    if (settings.email.isNotEmpty) {
+      buffer.writeln('Email: ${settings.email}');
+    }
+    buffer.writeln('');
+    
+    // Order info
+    buffer.writeln('From POS [${order.id.substring(order.id.length - 8)}]');
+    if (order.customer?.name != null) {
+      buffer.writeln('Name: ${order.customer!.name}');
+    }
+    buffer.writeln('');
+    
+    final now = DateTime.now();
+    buffer.writeln('Date: ${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}   Online');
+    buffer.writeln('${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}');
+    buffer.writeln('Cashier:           Bill No.: ${_generateBillNumber(order)}');
+    buffer.writeln('Autoaccept');
+    buffer.writeln('Token No.: ${order.id.substring(order.id.length - 3)}');
+    buffer.writeln('--------------------------------');
+    
+    // Items header
+    buffer.writeln('Item            Qty. Price Amount');
+    buffer.writeln('--------------------------------');
+    
+    // Items
+    for (final item in order.items) {
+      String itemName = item.menuItem.name;
+      if (itemName.length > 16) {
+        buffer.writeln(itemName);
+        buffer.writeln('                ${item.quantity} ${item.unitPrice.toStringAsFixed(2).padLeft(6)} ${item.total.toStringAsFixed(2).padLeft(7)}');
+      } else {
+        buffer.writeln('${itemName.padRight(16)}${item.quantity} ${item.unitPrice.toStringAsFixed(2).padLeft(6)} ${item.total.toStringAsFixed(2).padLeft(7)}');
+      }
+    }
+    
+    buffer.writeln('--------------------------------');
+    
+    // Totals
+    final totalQty = order.items.fold(0, (sum, item) => sum + item.quantity);
+    buffer.writeln('Total Qty: $totalQty            Sub');
+    buffer.writeln('                   Total   ${order.itemsTotal.toStringAsFixed(2).padLeft(6)}');
+    
+    // Discounts
+    if (order.hasDiscounts) {
+      buffer.writeln('                Discount Fixed  (${order.totalDiscountAmount.toStringAsFixed(2)})');
+    }
+    
+    // Charges
+    if (order.charges.deliveryCharge > 0) {
+      buffer.writeln('Delivery Charge               ${order.charges.deliveryCharge.toStringAsFixed(2).padLeft(4)}');
+    }
+    if (order.charges.packagingCharge > 0) {
+      buffer.writeln('Packaging Charge              ${order.charges.packagingCharge.toStringAsFixed(2).padLeft(4)}');
+    }
+    if (order.charges.serviceCharge > 0) {
+      buffer.writeln('Service Charge                ${order.charges.serviceCharge.toStringAsFixed(2).padLeft(4)}');
+    }
+    
+    buffer.writeln('--------------------------------');
+    
+    // Grand total
+    buffer.writeln('      Grand Total   ₹ ${grandTotal.toStringAsFixed(2)}');
+    buffer.writeln('Paid via Cash [POS]');
+    buffer.writeln('--------------------------------');
+    
+    // Notes
+    if (order.notes != null && order.notes!.isNotEmpty) {
+      buffer.writeln('Customer Notes: ${order.notes}');
+    }
+    
+    buffer.writeln('--------------------------------');
+    buffer.writeln('        Thanks For Ordering !!!');
+    
+    return buffer.toString();
+  }
+
+  String _generateBillNumber(Order order) {
+    final timestamp = order.createdAt;
+    final dateStr = '${timestamp.day.toString().padLeft(2, '0')}${timestamp.month.toString().padLeft(2, '0')}${timestamp.year.toString().substring(2)}';
+    final timeStr = '${timestamp.hour.toString().padLeft(2, '0')}${timestamp.minute.toString().padLeft(2, '0')}';
+    final orderSuffix = order.id.substring(order.id.length - 4);
+    return '$dateStr$timeStr$orderSuffix';
   }
 
   void _splitOrderBill(BuildContext context, Order order, AppSettings settings) {
@@ -8276,28 +8785,47 @@ class OrderHistoryScreen extends ConsumerWidget {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (order.customer?.phone != null)
+            if (order.customer?.phone != null) ...[
               ListTile(
                 leading: Icon(Icons.person, color: Colors.green[600]),
-                title: const Text('Send to Customer'),
+                title: const Text('Send Text to Customer'),
                 subtitle: Text('${order.customer!.name ?? 'Customer'} - ${order.customer!.phone}'),
                 onTap: () async {
                   Navigator.pop(context);
                   await _sendWhatsAppBill(context, order, settings, toCustomer: true);
                 },
               ),
+              ListTile(
+                leading: Icon(Icons.person_pin_circle, color: Colors.green[700]),
+                title: const Text('Send PDF to Customer'),
+                subtitle: Text('Send receipt PDF to ${order.customer!.name ?? 'Customer'}'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await _sendWhatsAppBillAsPDF(context, order, settings);
+                },
+              ),
+            ],
             ListTile(
               leading: Icon(Icons.share, color: Colors.blue[600]),
-              title: const Text('Share with Anyone'),
-              subtitle: const Text('Choose contact from WhatsApp'),
+              title: const Text('Share as Text'),
+              subtitle: const Text('Share bill as WhatsApp message'),
               onTap: () async {
                 Navigator.pop(context);
                 await _sendWhatsAppBill(context, order, settings, toCustomer: false);
               },
             ),
             ListTile(
+              leading: Icon(Icons.picture_as_pdf, color: Colors.red[600]),
+              title: const Text('Share as Receipt PDF'),
+              subtitle: const Text('Generate and share quick receipt PDF'),
+              onTap: () async {
+                Navigator.pop(context);
+                await _sendWhatsAppBillAsPDF(context, order, settings);
+              },
+            ),
+            ListTile(
               leading: Icon(Icons.edit, color: Colors.orange[600]),
-              title: const Text('Custom Message'),
+              title: const Text('Custom Text Message'),
               subtitle: const Text('Edit message before sharing'),
               onTap: () {
                 Navigator.pop(context);
@@ -8323,23 +8851,60 @@ class OrderHistoryScreen extends ConsumerWidget {
         settings: settings,
       );
       
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(toCustomer ? 'Bill sent to customer via WhatsApp' : 'WhatsApp opened with bill details'),
-          backgroundColor: Colors.green,
-          action: SnackBarAction(
-            label: 'OK',
-            textColor: Colors.white,
-            onPressed: () {},
-          ),
-        ),
+      showOptimizedToast(
+        context,
+        toCustomer ? 'Bill sent to customer via WhatsApp' : 'WhatsApp opened with bill details',
+        color: Colors.green,
+        icon: Icons.check_circle,
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Could not open WhatsApp: ${e.toString()}'),
-          backgroundColor: Colors.red,
+      showOptimizedToast(
+        context,
+        'Could not open WhatsApp: ${e.toString()}',
+        color: Colors.red,
+        icon: Icons.error,
+      );
+    }
+  }
+
+  Future<void> _sendWhatsAppBillAsPDF(BuildContext context, Order order, AppSettings settings) async {
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('Generating receipt PDF...'),
+          ],
         ),
+      ),
+    );
+
+    try {
+      await WhatsAppService.shareBillAsPDF(
+        order: order,
+        settings: settings,
+      );
+      
+      Navigator.pop(context); // Close loading dialog
+      
+      showOptimizedToast(
+        context,
+        'Receipt PDF generated and ready to share!',
+        color: Colors.green,
+        icon: Icons.check_circle,
+      );
+    } catch (e) {
+      Navigator.pop(context); // Close loading dialog
+      
+      showOptimizedToast(
+        context,
+        'Could not generate PDF: ${e.toString()}',
+        color: Colors.red,
+        icon: Icons.error,
       );
     }
   }
@@ -8379,18 +8944,18 @@ class OrderHistoryScreen extends ConsumerWidget {
                   settings: settings,
                   customMessage: messageController.text,
                 );
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('WhatsApp opened with custom message'),
-                    backgroundColor: Colors.green,
-                  ),
+                showOptimizedToast(
+                  context,
+                  'WhatsApp opened with custom message',
+                  color: Colors.green,
+                  icon: Icons.check_circle,
                 );
               } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Could not open WhatsApp: ${e.toString()}'),
-                    backgroundColor: Colors.red,
-                  ),
+                showOptimizedToast(
+                  context,
+                  'Could not open WhatsApp: ${e.toString()}',
+                  color: Colors.red,
+                  icon: Icons.error,
                 );
               }
             },

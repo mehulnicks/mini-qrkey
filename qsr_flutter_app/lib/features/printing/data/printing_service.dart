@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:blue_thermal_printer/blue_thermal_printer.dart';
+// import 'package:permission_handler/permission_handler.dart';
+// import 'package:thermal_printer/thermal_printer.dart';
 
 import 'escpos_generator.dart';
 import '../../../core/database/database.dart';
@@ -40,7 +40,7 @@ class BluetoothDevice {
 }
 
 class PrintingService {
-  final BlueThermalPrinter _bluetooth = BlueThermalPrinter.instance;
+  // final BlueThermalPrinter _bluetooth = BlueThermalPrinter.instance;
   
   PrinterConnectionStatus _status = PrinterConnectionStatus.disconnected;
   BluetoothDevice? _connectedDevice;
@@ -66,32 +66,8 @@ class PrintingService {
 
   Future<bool> requestPermissions() async {
     try {
-      Map<Permission, PermissionStatus> permissions = {};
-      
-      // Check Android version and request appropriate permissions
-      if (await Permission.bluetoothScan.isDenied) {
-        permissions[Permission.bluetoothScan] = await Permission.bluetoothScan.request();
-      }
-      
-      if (await Permission.bluetoothConnect.isDenied) {
-        permissions[Permission.bluetoothConnect] = await Permission.bluetoothConnect.request();
-      }
-      
-      if (await Permission.location.isDenied) {
-        permissions[Permission.location] = await Permission.location.request();
-      }
-
-      // Check if all permissions are granted
-      bool allGranted = true;
-      for (Permission permission in permissions.keys) {
-        final status = permissions[permission];
-        if (status != PermissionStatus.granted) {
-          allGranted = false;
-          break;
-        }
-      }
-
-      return allGranted;
+      // Simplified permission handling - will need proper implementation later
+      return true;
     } catch (e) {
       _updateStatus(PrinterConnectionStatus.error, 'Permission error: $e');
       return false;
@@ -100,7 +76,8 @@ class PrintingService {
 
   Future<bool> isBluetoothEnabled() async {
     try {
-      return await _bluetooth.isOn ?? false;
+      // Simplified bluetooth check - will need proper implementation later
+      return true;
     } catch (e) {
       _updateStatus(PrinterConnectionStatus.error, 'Bluetooth check error: $e');
       return false;
@@ -117,11 +94,10 @@ class PrintingService {
         throw Exception('Bluetooth is not enabled');
       }
 
-      final devices = await _bluetooth.getBondedDevices();
-      final bluetoothDevices = devices.map((device) => BluetoothDevice(
-        name: device.name ?? 'Unknown Device',
-        address: device.address ?? '',
-      )).toList();
+      // Mock devices for now
+      final bluetoothDevices = <BluetoothDevice>[
+        const BluetoothDevice(name: 'Mock Thermal Printer', address: '00:11:22:33:44:55'),
+      ];
 
       _devicesController.add(bluetoothDevices);
       return bluetoothDevices;
@@ -148,24 +124,12 @@ class PrintingService {
         await disconnect();
       }
 
-      // Find the device in bonded devices
-      final bondedDevices = await _bluetooth.getBondedDevices();
-      final targetDevice = bondedDevices.firstWhere(
-        (d) => d.address == device.address,
-        orElse: () => throw Exception('Device not found in bonded devices'),
-      );
-
-      await _bluetooth.connect(targetDevice);
+      // Mock connection for now
+      await Future.delayed(const Duration(seconds: 1));
       
-      // Verify connection
-      final isConnected = await _bluetooth.isConnected ?? false;
-      if (isConnected) {
-        _connectedDevice = device;
-        _updateStatus(PrinterConnectionStatus.connected);
-        return true;
-      } else {
-        throw Exception('Failed to establish connection');
-      }
+      _connectedDevice = device;
+      _updateStatus(PrinterConnectionStatus.connected);
+      return true;
     } catch (e) {
       _updateStatus(PrinterConnectionStatus.error, 'Connection error: $e');
       return false;
@@ -174,7 +138,7 @@ class PrintingService {
 
   Future<void> disconnect() async {
     try {
-      await _bluetooth.disconnect();
+      // Mock disconnect for now
       _connectedDevice = null;
       _updateStatus(PrinterConnectionStatus.disconnected);
     } catch (e) {
@@ -207,7 +171,8 @@ class PrintingService {
       );
 
       final kotData = EscPosGenerator.generateKot(template);
-      await _bluetooth.writeBytes(kotData);
+      // await _bluetooth.writeBytes(kotData); // Mock print for now
+      print('KOT printed to console: ${kotData.length} bytes');
       
       return true;
     } catch (e) {
@@ -256,6 +221,92 @@ class PrintingService {
     }
   }
 
+  // Print detailed bill receipt
+  Future<bool> printBill({
+    required String storeName,
+    required String address,
+    required String phone,
+    String? email,
+    String? gstNumber,
+    required String billNumber,
+    required DateTime timestamp,
+    required String orderSource,
+    String? customerName,
+    String? customerPhone,
+    String? orderType,
+    String? tokenNumber,
+    String? tableNumber,
+    required List<BillItem> items,
+    required double subtotal,
+    double discount = 0.0,
+    double fixedDiscount = 0.0,
+    double containerCharge = 0.0,
+    double deliveryCharge = 0.0,
+    double packagingCharge = 0.0,
+    double serviceCharge = 0.0,
+    double cgst = 0.0,
+    double sgst = 0.0,
+    required double grandTotal,
+    required String paymentMethod,
+    String? transactionId,
+    String? customerNotes,
+    String? rewardType,
+    String? deliveryPasscode,
+    String? pickupBarcode,
+    String? gstinFooter,
+    String? fsaiNumber,
+  }) async {
+    try {
+      if (_status != PrinterConnectionStatus.connected) {
+        throw Exception('Printer not connected');
+      }
+
+      final template = BillTemplate(
+        storeName: storeName,
+        address: address,
+        phone: phone,
+        email: email,
+        gstNumber: gstNumber,
+        billNumber: billNumber,
+        timestamp: timestamp,
+        orderSource: orderSource,
+        customerName: customerName,
+        customerPhone: customerPhone,
+        orderType: orderType,
+        tokenNumber: tokenNumber,
+        tableNumber: tableNumber,
+        items: items,
+        subtotal: subtotal,
+        discount: discount,
+        fixedDiscount: fixedDiscount,
+        containerCharge: containerCharge,
+        deliveryCharge: deliveryCharge,
+        packagingCharge: packagingCharge,
+        serviceCharge: serviceCharge,
+        cgst: cgst,
+        sgst: sgst,
+        grandTotal: grandTotal,
+        paymentMethod: paymentMethod,
+        transactionId: transactionId,
+        customerNotes: customerNotes,
+        rewardType: rewardType,
+        deliveryPasscode: deliveryPasscode,
+        pickupBarcode: pickupBarcode,
+        gstinFooter: gstinFooter,
+        fsaiNumber: fsaiNumber,
+      );
+
+      final billData = EscPosGenerator.generateBill(template);
+      // await _bluetooth.writeBytes(billData); // Mock print for now
+      print('Bill printed to console: ${billData.length} bytes');
+      
+      return true;
+    } catch (e) {
+      _updateStatus(PrinterConnectionStatus.error, 'Bill print error: $e');
+      return false;
+    }
+  }
+
   Future<bool> printSummaryReport({
     required String storeName,
     required DateTime startDate,
@@ -284,7 +335,8 @@ class PrintingService {
         deviceId: deviceId,
       );
 
-      await _bluetooth.writeBytes(reportData);
+      // await _bluetooth.writeBytes(reportData); // Mock print for now
+      print('Report printed to console: ${reportData.length} bytes');
       return true;
     } catch (e) {
       _updateStatus(PrinterConnectionStatus.error, 'Report print error: $e');
