@@ -759,7 +759,12 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _obscurePassword = true;
-  final GoogleSignIn _googleSignIn = GoogleSignIn();
+  final GoogleSignIn _googleSignIn = GoogleSignIn(
+    scopes: [
+      'email',
+      'profile',
+    ],
+  );
 
   @override
   void dispose() {
@@ -811,17 +816,26 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
     
     try {
+      // Sign out any existing session first
+      await _googleSignIn.signOut();
+      await FirebaseAuth.instance.signOut();
+      
       // Trigger the authentication flow
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
       
       if (googleUser == null) {
         // User canceled the sign-in
         setState(() => _isLoading = false);
+        print('Google Sign-In: User cancelled');
         return;
       }
 
+      print('Google Sign-In: User selected - ${googleUser.email}');
+
       // Obtain the auth details from the request
       final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      
+      print('Google Sign-In: Got authentication tokens');
 
       // Create a new credential
       final credential = GoogleAuthProvider.credential(
@@ -829,19 +843,43 @@ class _LoginScreenState extends State<LoginScreen> {
         idToken: googleAuth.idToken,
       );
 
+      print('Google Sign-In: Created Firebase credential');
+
       // Sign in to Firebase with the Google user credential
-      await FirebaseAuth.instance.signInWithCredential(credential);
+      final userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
+      
+      print('Google Sign-In: Firebase sign-in successful - ${userCredential.user?.email}');
       
       // Set local login state
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('user_logged_in', true);
       
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Welcome, ${userCredential.user?.displayName ?? userCredential.user?.email ?? 'User'}!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+      
       // Navigation will be handled by the auth state listener
       
     } catch (e) {
       print('Google Sign-In error: $e');
+      String errorMessage = 'Google Sign-In failed. Please try again.';
+      
+      if (e.toString().contains('network_error')) {
+        errorMessage = 'Network error. Please check your internet connection.';
+      } else if (e.toString().contains('sign_in_canceled')) {
+        errorMessage = 'Sign-in was cancelled.';
+      } else if (e.toString().contains('sign_in_failed')) {
+        errorMessage = 'Google Sign-In failed. Please ensure Google Play Services is available.';
+      }
+      
       if (mounted) {  
-        _showErrorDialog('Google Sign-In failed. Please try again.');
+        _showErrorDialog(errorMessage);
       }
     } finally {
       if (mounted) {
