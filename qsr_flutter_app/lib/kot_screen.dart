@@ -34,8 +34,12 @@ class KOTScreen extends ConsumerWidget {
             icon: const Icon(Icons.refresh),
             onPressed: () {
               // Refresh the orders
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Orders refreshed')),
+              showOptimizedToast(
+                context,
+                'Orders refreshed',
+                icon: Icons.refresh,
+                color: Colors.blue,
+                duration: const Duration(seconds: 1),
               );
             },
           ),
@@ -291,8 +295,12 @@ class KOTScreen extends ConsumerWidget {
           ElevatedButton.icon(
             onPressed: () {
               Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('KOT sent to printer')),
+              showOptimizedToast(
+                context,
+                'KOT sent to printer',
+                icon: Icons.print,
+                color: Colors.blue,
+                duration: const Duration(seconds: 2),
               );
             },
             icon: const Icon(Icons.print),
@@ -367,11 +375,12 @@ class KOTScreen extends ConsumerWidget {
 
   void _markOrderReady(WidgetRef ref, Order order) {
     ref.read(ordersProvider.notifier).updateOrderStatus(order.id, OrderStatus.ready);
-    ScaffoldMessenger.of(ref.context).showSnackBar(
-      SnackBar(
-        content: Text('Order #${order.id.substring(order.id.length - 6)} marked as ready'),
-        backgroundColor: Colors.green,
-      ),
+    showOptimizedToast(
+      ref.context,
+      'Order #${order.id.substring(order.id.length - 6)} marked as ready',
+      icon: Icons.restaurant,
+      color: Colors.green,
+      duration: const Duration(seconds: 2),
     );
   }
 
@@ -443,8 +452,12 @@ class KOTScreen extends ConsumerWidget {
             onPressed: () {
               print('Printing KOT Summary...\n$summaryContent');
               Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('KOT Summary sent to printer')),
+              showOptimizedToast(
+                context,
+                'KOT Summary sent to printer',
+                icon: Icons.print,
+                color: const Color(0xFFFF9933),
+                duration: const Duration(seconds: 2),
               );
             },
             icon: const Icon(Icons.print),
