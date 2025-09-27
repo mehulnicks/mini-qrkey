@@ -3603,9 +3603,36 @@ class PaymentConfigNotifier extends StateNotifier<PaymentSystemConfig> {
     return state.enabledMethods.contains(method);
   }
 
+  bool isCustomMethodEnabled(String methodId) {
+    final method = state.availableMethods.firstWhere(
+      (m) => m.id == methodId,
+      orElse: () => PaymentMethodConfig(id: '', name: '', type: PaymentMethodType.cash),
+    );
+    return method.id.isNotEmpty && method.isEnabled;
+  }
+
+  Future<void> toggleCustomPaymentMethod(String methodId) async {
+    final updatedMethods = state.availableMethods.map((method) {
+      if (method.id == methodId && method.type == PaymentMethodType.custom) {
+        return method.copyWith(isEnabled: !method.isEnabled);
+      }
+      return method;
+    }).toList();
+
+    state = state.copyWith(availableMethods: updatedMethods);
+    await _saveConfig();
+  }
+
   List<PaymentMethodConfig> get enabledMethodConfigs {
     return state.availableMethods
-        .where((method) => state.enabledMethods.contains(method.type))
+        .where((method) {
+          // For custom methods, check individual isEnabled property
+          if (method.type == PaymentMethodType.custom) {
+            return method.isEnabled && state.enabledMethods.contains(method.type);
+          }
+          // For standard methods, check if type is enabled
+          return state.enabledMethods.contains(method.type);
+        })
         .toList();
   }
 
@@ -3618,6 +3645,7 @@ class PaymentConfigNotifier extends StateNotifier<PaymentSystemConfig> {
       name: name,
       type: PaymentMethodType.custom,
       icon: icon ?? '💳',
+      isEnabled: true, // Enable the custom method by default
     );
     
     print('Created custom method: ${customMethod.toJson()}');
@@ -3625,10 +3653,17 @@ class PaymentConfigNotifier extends StateNotifier<PaymentSystemConfig> {
     final updatedMethods = List<PaymentMethodConfig>.from(state.availableMethods);
     updatedMethods.add(customMethod);
     
+    // Ensure custom payment type is enabled
+    final updatedEnabledMethods = Set<PaymentMethodType>.from(state.enabledMethods);
+    updatedEnabledMethods.add(PaymentMethodType.custom);
+    
     print('Total methods before update: ${state.availableMethods.length}');
     print('Total methods after update: ${updatedMethods.length}');
     
-    state = state.copyWith(availableMethods: updatedMethods);
+    state = state.copyWith(
+      availableMethods: updatedMethods,
+      enabledMethods: updatedEnabledMethods,
+    );
     
     print('State updated. Current available methods count: ${state.availableMethods.length}');
     
@@ -3642,16 +3677,13 @@ class PaymentConfigNotifier extends StateNotifier<PaymentSystemConfig> {
         .where((method) => method.id != methodId)
         .toList();
     
-    // Also remove from enabled methods if it was enabled
+    // Check if there are any remaining custom methods after removal
     final updatedEnabledMethods = Set<PaymentMethodType>.from(state.enabledMethods);
-    final methodToRemove = state.availableMethods.firstWhere((m) => m.id == methodId);
-    if (methodToRemove.type == PaymentMethodType.custom) {
-      // For custom methods, we need to check if this specific method was enabled
-      // Since custom methods share the same type, we'll disable the type if this was the last custom method
-      final remainingCustomMethods = updatedMethods.where((m) => m.type == PaymentMethodType.custom).toList();
-      if (remainingCustomMethods.isEmpty) {
-        updatedEnabledMethods.remove(PaymentMethodType.custom);
-      }
+    final remainingCustomMethods = updatedMethods.where((m) => m.type == PaymentMethodType.custom).toList();
+    
+    // If no custom methods remain, disable the custom payment type
+    if (remainingCustomMethods.isEmpty) {
+      updatedEnabledMethods.remove(PaymentMethodType.custom);
     }
     
     state = state.copyWith(
@@ -4837,8 +4869,10 @@ class _PaymentSettingsScreenState extends ConsumerState<PaymentSettingsScreen> {
                 itemCount: paymentConfig.availableMethods.length,
                 itemBuilder: (context, index) {
                   final method = paymentConfig.availableMethods[index];
-                  final isEnabled = paymentConfig.enabledMethods.contains(method.type);
                   final isCustom = method.type == PaymentMethodType.custom;
+                  final isEnabled = isCustom 
+                    ? paymentNotifier.isCustomMethodEnabled(method.id)
+                    : paymentConfig.enabledMethods.contains(method.type);
 
                   return Card(
                     child: isCustom 
@@ -4854,21 +4888,20 @@ class _PaymentSettingsScreenState extends ConsumerState<PaymentSettingsScreen> {
                               Switch(
                                 value: isEnabled,
                                 onChanged: (value) {
-                                  if (value) {
-                                    paymentNotifier.enablePaymentMethod(method.type);
-                                  } else {
-                                    // Ensure at least one payment method remains enabled
-                                    if (paymentConfig.enabledMethods.length > 1) {
-                                      paymentNotifier.disablePaymentMethod(method.type);
-                                    } else {
+                                  // For custom methods, check if we have any other enabled methods before disabling
+                                  if (!value) {
+                                    final enabledCount = paymentNotifier.enabledMethodConfigs.length;
+                                    if (enabledCount <= 1) {
                                       ScaffoldMessenger.of(context).showSnackBar(
                                         const SnackBar(
                                           content: Text('At least one payment method must be enabled'),
                                           backgroundColor: Colors.orange,
                                         ),
                                       );
+                                      return;
                                     }
                                   }
+                                  paymentNotifier.toggleCustomPaymentMethod(method.id);
                                 },
                               ),
                               IconButton(
@@ -5024,16 +5057,73 @@ class _PaymentSettingsScreenState extends ConsumerState<PaymentSettingsScreen> {
   }
 
   void _showAddCustomPaymentMethodDialog() {
-    final nameController = TextEditingController();
-    final paymentNotifier = ref.read(paymentConfigProvider.notifier);
-    final parentContext = context; // Capture parent context
-    const defaultIcon = '💳'; // Default icon for custom payment methods
-
     showDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Add Custom Payment Method'),
-        content: Column(
+      builder: (dialogContext) => _AddCustomPaymentMethodDialog(),
+    );
+  }
+
+  void _confirmDeleteCustomMethod(PaymentMethodConfig method) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Payment Method'),
+        content: Text('Are you sure you want to delete "${method.name}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              ref.read(paymentConfigProvider.notifier).removeCustomPaymentMethod(method.id);
+              Navigator.pop(context);
+              
+              showOptimizedToast(
+                context,
+                'Payment method "${method.name}" deleted',
+                icon: Icons.delete,
+                color: Colors.red,
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Separate StatefulWidget for the custom payment method dialog to handle lifecycle properly
+class _AddCustomPaymentMethodDialog extends ConsumerStatefulWidget {
+  @override
+  ConsumerState<_AddCustomPaymentMethodDialog> createState() => _AddCustomPaymentMethodDialogState();
+}
+
+class _AddCustomPaymentMethodDialogState extends ConsumerState<_AddCustomPaymentMethodDialog> {
+  final _nameController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  bool _isLoading = false;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const defaultIcon = '💳';
+
+    return AlertDialog(
+      title: const Text('Add Custom Payment Method'),
+      content: Form(
+        key: _formKey,
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Row(
@@ -5052,80 +5142,98 @@ class _PaymentSettingsScreenState extends ConsumerState<PaymentSettingsScreen> {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: TextField(
-                    controller: nameController,
+                  child: TextFormField(
+                    controller: _nameController,
+                    enabled: !_isLoading,
                     decoration: const InputDecoration(
                       labelText: 'Payment Method Name',
                       border: OutlineInputBorder(),
                       hintText: 'e.g., Store Credit, Voucher, etc.',
                     ),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Please enter a payment method name';
+                      }
+                      return null;
+                    },
+                    autofocus: true,
+                    onFieldSubmitted: (_) => _handleAddPaymentMethod(),
                   ),
                 ),
               ],
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              nameController.dispose();
-              Navigator.pop(dialogContext);
-            },
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final name = nameController.text.trim();
-              if (name.isNotEmpty) {
-                try {
-                  await paymentNotifier.addCustomPaymentMethod(name, defaultIcon);
-                  
-                  // Close dialog first
-                  Navigator.pop(dialogContext);
-                  
-                  // Dispose controller after dialog is closed
-                  nameController.dispose();
-                  
-                  // Then show success message with parent context
-                  showOptimizedToast(
-                    parentContext,
-                    'Payment method "$name" added successfully',
-                    icon: Icons.payment,
-                  );
-                } catch (e) {
-                  print('Error adding custom payment method: $e');
-                  // Close dialog first
-                  Navigator.pop(dialogContext);
-                  
-                  // Dispose controller after dialog is closed
-                  nameController.dispose();
-                  
-                  // Then show error message with parent context
-                  showOptimizedToast(
-                    parentContext,
-                    'Error adding payment method: $e',
-                    icon: Icons.error,
-                    color: Colors.red,
-                  );
-                }
-              } else {
-                showOptimizedToast(
-                  dialogContext,
-                  'Please enter a payment method name',
-                  icon: Icons.warning,
-                  color: Colors.orange,
-                );
-              }
-            },
-            child: const Text('Add'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFFF9933),
-              foregroundColor: Colors.white,
-            ),
-          ),
-        ],
       ),
+      actions: [
+        TextButton(
+          onPressed: _isLoading ? null : () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: _isLoading ? null : _handleAddPaymentMethod,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFFFF9933),
+            foregroundColor: Colors.white,
+          ),
+          child: _isLoading 
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                )
+              : const Text('Add'),
+        ),
+      ],
     );
+  }
+
+  Future<void> _handleAddPaymentMethod() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    final name = _nameController.text.trim();
+    const defaultIcon = '💳';
+
+    try {
+      await ref.read(paymentConfigProvider.notifier).addCustomPaymentMethod(name, defaultIcon);
+      
+      if (!mounted) return;
+      
+      // Close dialog
+      Navigator.pop(context);
+      
+      // Show success message
+      showOptimizedToast(
+        context,
+        'Payment method "$name" added successfully',
+        icon: Icons.payment,
+      );
+    } catch (e) {
+      print('Error adding custom payment method: $e');
+      
+      if (!mounted) return;
+      
+      setState(() {
+        _isLoading = false;
+      });
+      
+      // Show error message without closing dialog
+      showOptimizedToast(
+        context,
+        'Error adding payment method. Please try again.',
+        icon: Icons.error,
+        color: Colors.red,
+      );
+    }
   }
 
   void _confirmDeleteCustomMethod(PaymentMethodConfig method) {
