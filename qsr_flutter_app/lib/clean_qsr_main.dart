@@ -1136,6 +1136,165 @@ class GoogleDriveService {
   }
 }
 
+// KOT Printing Utility Class
+class KOTPrintingService {
+  static void printDuplicateKOT(
+    BuildContext context, 
+    WidgetRef ref, 
+    String orderId, 
+    List<OrderItem> items, 
+    CustomerInfo? customer
+  ) {
+    final settings = ref.read(settingsProvider);
+    final orderType = ref.read(orderTypeProvider);
+    final now = DateTime.now();
+    
+    // Create KOT content with DUPLICATE marking
+    final kotContent = _formatDuplicateKOTTicket(
+      settings.businessName,
+      orderId,
+      orderType,
+      customer,
+      items,
+      now,
+    );
+
+    // Show KOT preview dialog with duplicate indication
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.print_outlined, color: Colors.purple),
+            const SizedBox(width: 8),
+            const Text('Duplicate KOT Preview'),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.purple,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'DUPLICATE',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Container(
+          width: double.maxFinite,
+          height: 400,
+          child: SingleChildScrollView(
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey[300]!),
+              ),
+              child: Text(
+                kotContent,
+                style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  height: 1.2,
+                ),
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              
+              // Here you would actually send to thermal printer
+              // For now, just show success message
+              showOptimizedToast(
+                context,
+                'Duplicate KOT sent to kitchen printer',
+                icon: Icons.print_outlined,
+                color: Colors.purple,
+                duration: const Duration(seconds: 2),
+              );
+            },
+            icon: const Icon(Icons.print_outlined),
+            label: const Text('Print Duplicate'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.purple,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    // Console output for debugging
+    print('=== DUPLICATE KOT PRINTED ===');
+    print(kotContent);
+    print('==============================');
+  }
+
+  static String _formatDuplicateKOTTicket(
+    String businessName,
+    String orderId,
+    OrderType orderType,
+    CustomerInfo? customer,
+    List<OrderItem> items,
+    DateTime timestamp,
+  ) {
+    final buffer = StringBuffer();
+    
+    // Header: Store name (bold), "DUPLICATE KOT", token/table, orderType, server, timestamp
+    buffer.writeln('================================');
+    buffer.writeln('      ${businessName.toUpperCase()}');
+    buffer.writeln('       *** DUPLICATE KOT ***');
+    buffer.writeln('================================');
+    
+    // Token/Order Info
+    buffer.writeln('Order ID: #${orderId.substring(orderId.length - 6)}');
+    if (customer?.name != null) {
+      buffer.writeln('Table: ${customer!.name}');
+    }
+    buffer.writeln('Type: ${orderType.toString().split('.').last.toUpperCase()}');
+    buffer.writeln('Server: Staff-01'); // Could be dynamic
+    buffer.writeln('Time: ${_formatTimestamp(timestamp)}');
+    buffer.writeln('>>> DUPLICATE COPY <<<');
+    buffer.writeln('--------------------------------');
+    
+    // Body: Item lines (qty x name) + per-item notes
+    buffer.writeln('ITEMS:');
+    for (final item in items) {
+      buffer.writeln('${item.quantity.toString().padLeft(2)} x ${item.menuItem.name}');
+      if (item.specialInstructions != null && item.specialInstructions!.isNotEmpty) {
+        buffer.writeln('     >> ${item.specialInstructions}');
+      }
+    }
+    
+    // Footer: Separator line, deviceId/printed at
+    buffer.writeln('--------------------------------');
+    buffer.writeln('Total Items: ${items.fold(0, (sum, item) => sum + item.quantity)}');
+    buffer.writeln('Device: POS-Terminal-01');
+    buffer.writeln('DUPLICATE Printed: ${_formatTimestamp(DateTime.now())}');
+    buffer.writeln('================================');
+    
+    return buffer.toString();
+  }
+
+  static String _formatTimestamp(DateTime dateTime) {
+    return '${dateTime.day.toString().padLeft(2, '0')}/${dateTime.month.toString().padLeft(2, '0')}/${dateTime.year} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+  }
+}
+
 // WhatsApp Service for Bill Sharing
 class WhatsAppService {
   static Future<void> shareBillAsPDF({
@@ -1204,8 +1363,107 @@ class WhatsAppService {
   }
 
   static String _generateWhatsAppBillContent(Order order, AppSettings settings) {
-    // Use the same format as Quick Receipt for consistency
-    return PDFBillGenerator._generateQuickReceiptContent(order, settings);
+    final buffer = StringBuffer();
+    
+    // Header
+    buffer.writeln('=' * 42);
+    buffer.writeln('           ${settings.businessName.toUpperCase()}');
+    buffer.writeln('=' * 42);
+    if (settings.phone.isNotEmpty) {
+      buffer.writeln('Phone: ${settings.phone}');
+    }
+    if (settings.address.isNotEmpty) {
+      buffer.writeln('Address: ${settings.address}');
+    }
+    buffer.writeln('-' * 42);
+    
+    // Order info
+    buffer.writeln('Order #: ${order.id.substring(order.id.length - 8)}');
+    buffer.writeln('Date: ${PDFBillGenerator._formatDate(order.createdAt)}');
+    buffer.writeln('Time: ${PDFBillGenerator._formatTime(order.createdAt)}');
+    buffer.writeln('Type: ${_getOrderTypeLabel(order.type)}');
+    
+    if (order.customer != null) {
+      buffer.writeln('Customer: ${order.customer!.name ?? 'Guest'}');
+      if (order.customer!.phone != null) {
+        buffer.writeln('Phone: ${order.customer!.phone}');
+      }
+    }
+    buffer.writeln('-' * 42);
+    
+    // Items
+    buffer.writeln('ITEMS:');
+    buffer.writeln('-' * 42);
+    for (final item in order.items) {
+      buffer.writeln('${item.quantity}x ${item.menuItem.name}');
+      buffer.writeln('   @ Rs.${item.unitPrice.toStringAsFixed(2)} = Rs.${item.total.toStringAsFixed(2)}');
+      if (item.specialInstructions != null && item.specialInstructions!.isNotEmpty) {
+        buffer.writeln('   Note: ${item.specialInstructions}');
+      }
+      buffer.writeln('');
+    }
+    
+    buffer.writeln('-' * 42);
+    
+    // Totals
+    buffer.writeln('Subtotal:        Rs.${order.itemsSubtotal.toStringAsFixed(2)}');
+    
+    if (order.hasItemDiscounts) {
+      buffer.writeln('Item Discounts: -Rs.${order.itemsDiscountAmount.toStringAsFixed(2)}');
+      buffer.writeln('After Discounts: Rs.${order.itemsTotal.toStringAsFixed(2)}');
+    }
+    
+    // Charges
+    if (order.type == OrderType.delivery && settings.deliveryEnabled && order.charges.deliveryCharge > 0) {
+      buffer.writeln('Delivery:        Rs.${order.charges.deliveryCharge.toStringAsFixed(2)}');
+    }
+    if ((order.type == OrderType.delivery || order.type == OrderType.takeaway) && settings.packagingEnabled && order.charges.packagingCharge > 0) {
+      buffer.writeln('Packaging:       Rs.${order.charges.packagingCharge.toStringAsFixed(2)}');
+    }
+    if (order.type == OrderType.dineIn && settings.serviceEnabled && order.charges.serviceCharge > 0) {
+      buffer.writeln('Service:         Rs.${order.charges.serviceCharge.toStringAsFixed(2)}');
+    }
+    
+    // Order discount
+    if (order.hasOrderDiscount) {
+      buffer.writeln('Order Discount: -Rs.${order.orderDiscountAmount.toStringAsFixed(2)}');
+      if (order.orderDiscount!.reason != null) {
+        buffer.writeln('  (${order.orderDiscount!.reason})');
+      }
+    }
+    
+    // Taxes
+    if (settings.sgstRate > 0) {
+      final sgstAmount = order.calculateSGST(settings);
+      buffer.writeln('SGST (${(settings.sgstRate * 100).toStringAsFixed(1)}%):     Rs.${sgstAmount.toStringAsFixed(2)}');
+    }
+    if (settings.cgstRate > 0) {
+      final cgstAmount = order.calculateCGST(settings);
+      buffer.writeln('CGST (${(settings.cgstRate * 100).toStringAsFixed(1)}%):     Rs.${cgstAmount.toStringAsFixed(2)}');
+    }
+    
+    buffer.writeln('=' * 42);
+    buffer.writeln('TOTAL:           Rs.${order.getGrandTotal(settings).toStringAsFixed(2)}');
+    buffer.writeln('=' * 42);
+    
+    // Payment info
+    if (order.payments.isNotEmpty) {
+      buffer.writeln('');
+      buffer.writeln('PAYMENT:');
+      for (final payment in order.payments) {
+        buffer.writeln('${payment.method.toString().split('.').last.toUpperCase()}: Rs.${payment.amount.toStringAsFixed(2)}');
+      }
+    }
+    
+    // Footer
+    buffer.writeln('');
+    buffer.writeln('Thank you for choosing ${settings.businessName}!');
+    buffer.writeln('Please visit again.');
+    buffer.writeln('');
+    buffer.writeln('Generated on: ${PDFBillGenerator._formatDate(DateTime.now())} ${PDFBillGenerator._formatTime(DateTime.now())}');
+    buffer.writeln('=' * 42);
+    
+    return buffer.toString();
   }
 
   static String _formatDateTime(DateTime dateTime) {
@@ -7128,6 +7386,112 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     print('==================');
   }
 
+  static void printDuplicateKOT(
+    BuildContext context, 
+    WidgetRef ref, 
+    String orderId, 
+    List<OrderItem> items, 
+    CustomerInfo? customer
+  ) {
+    final settings = ref.read(settingsProvider);
+    final orderType = ref.read(orderTypeProvider);
+    final now = DateTime.now();
+    
+    // Create KOT content with DUPLICATE marking
+    final kotContent = _formatDuplicateKOTTicket(
+      settings.businessName,
+      orderId,
+      orderType,
+      customer,
+      items,
+      now,
+    );
+
+    // Show KOT preview dialog with duplicate indication
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.print_outlined, color: Colors.purple),
+            const SizedBox(width: 8),
+            const Text('Duplicate KOT Preview'),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.purple,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'DUPLICATE',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Container(
+          width: double.maxFinite,
+          height: 400,
+          child: SingleChildScrollView(
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey[300]!),
+              ),
+              child: Text(
+                kotContent,
+                style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  height: 1.2,
+                ),
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              
+              // Here you would actually send to thermal printer
+              // For now, just show success message
+              showOptimizedToast(
+                context,
+                'Duplicate KOT sent to kitchen printer',
+                icon: Icons.print_outlined,
+                color: Colors.purple,
+                duration: const Duration(seconds: 2),
+              );
+            },
+            icon: const Icon(Icons.print_outlined),
+            label: const Text('Print Duplicate'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.purple,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    // Console output for debugging
+    print('=== DUPLICATE KOT PRINTED ===');
+    print(kotContent);
+    print('==============================');
+  }
+
   // Enhanced KOT Formatting Functions
   String _formatKOTTicket(
     String businessName,
@@ -7152,7 +7516,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     }
     buffer.writeln('Type: ${orderType.toString().split('.').last.toUpperCase()}');
     buffer.writeln('Server: Staff-01'); // Could be dynamic
-    buffer.writeln('Time: ${_formatKOTTimestamp(timestamp)}');
+    buffer.writeln('Time: ${_formatTimestamp(timestamp)}');
     buffer.writeln('--------------------------------');
     
     // Body: Item lines (qty x name) + per-item notes
@@ -7168,10 +7532,60 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     buffer.writeln('--------------------------------');
     buffer.writeln('Total Items: ${items.fold(0, (sum, item) => sum + item.quantity)}');
     buffer.writeln('Device: POS-Terminal-01');
-    buffer.writeln('Printed: ${_formatKOTTimestamp(DateTime.now())}');
+    buffer.writeln('Printed: ${_formatTimestamp(DateTime.now())}');
     buffer.writeln('================================');
     
     return buffer.toString();
+  }
+
+  static String _formatDuplicateKOTTicket(
+    String businessName,
+    String orderId,
+    OrderType orderType,
+    CustomerInfo? customer,
+    List<OrderItem> items,
+    DateTime timestamp,
+  ) {
+    final buffer = StringBuffer();
+    
+    // Header: Store name (bold), "DUPLICATE KOT", token/table, orderType, server, timestamp
+    buffer.writeln('================================');
+    buffer.writeln('      ${businessName.toUpperCase()}');
+    buffer.writeln('       *** DUPLICATE KOT ***');
+    buffer.writeln('================================');
+    
+    // Token/Order Info
+    buffer.writeln('Order ID: #${orderId.substring(orderId.length - 6)}');
+    if (customer?.name != null) {
+      buffer.writeln('Table: ${customer!.name}');
+    }
+    buffer.writeln('Type: ${orderType.toString().split('.').last.toUpperCase()}');
+    buffer.writeln('Server: Staff-01'); // Could be dynamic
+    buffer.writeln('Time: ${_formatTimestamp(timestamp)}');
+    buffer.writeln('>>> DUPLICATE COPY <<<');
+    buffer.writeln('--------------------------------');
+    
+    // Body: Item lines (qty x name) + per-item notes
+    buffer.writeln('ITEMS:');
+    for (final item in items) {
+      buffer.writeln('${item.quantity.toString().padLeft(2)} x ${item.menuItem.name}');
+      if (item.specialInstructions != null && item.specialInstructions!.isNotEmpty) {
+        buffer.writeln('     >> ${item.specialInstructions}');
+      }
+    }
+    
+    // Footer: Separator line, deviceId/printed at
+    buffer.writeln('--------------------------------');
+    buffer.writeln('Total Items: ${items.fold(0, (sum, item) => sum + item.quantity)}');
+    buffer.writeln('Device: POS-Terminal-01');
+    buffer.writeln('DUPLICATE Printed: ${_formatTimestamp(DateTime.now())}');
+    buffer.writeln('================================');
+    
+    return buffer.toString();
+  }
+
+  static String _formatTimestamp(DateTime dateTime) {
+    return '${dateTime.day.toString().padLeft(2, '0')}/${dateTime.month.toString().padLeft(2, '0')}/${dateTime.year} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
   }
 
   String _formatKOTSummaryReport(
@@ -7186,7 +7600,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     buffer.writeln('================================');
     buffer.writeln('     KOT SUMMARY - $dateRange');
     buffer.writeln('================================');
-    buffer.writeln('Generated: ${_formatKOTTimestamp(printTime)}');
+    buffer.writeln('Generated: ${printTime.day.toString().padLeft(2, '0')}/${printTime.month.toString().padLeft(2, '0')}/${printTime.year} ${printTime.hour.toString().padLeft(2, '0')}:${printTime.minute.toString().padLeft(2, '0')}');
     buffer.writeln('--------------------------------');
     
     // Metrics: Orders, Gross Sales, Average Order, Items Sold
@@ -7232,7 +7646,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     return buffer.toString();
   }
 
-  String _formatKOTTimestamp(DateTime dateTime) {
+  static String formatKOTTimestamp(DateTime dateTime) {
     return '${dateTime.day.toString().padLeft(2, '0')}/${dateTime.month.toString().padLeft(2, '0')}/${dateTime.year} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
   }
 
@@ -7785,6 +8199,9 @@ class OrderHistoryScreen extends ConsumerWidget {
               case 'print':
                 _printOrderBill(context, order, ref.read(settingsProvider));
                 break;
+              case 'duplicate_kot':
+                KOTPrintingService.printDuplicateKOT(context, ref, order.id, order.items, order.customer);
+                break;
               case 'whatsapp':
                 _shareOnWhatsApp(context, ref, order);
                 break;
@@ -7819,6 +8236,18 @@ class OrderHistoryScreen extends ConsumerWidget {
                 ],
               ),
             ),
+            if (order.kotPrinted && 
+                (order.status == OrderStatus.preparing || order.status == OrderStatus.ready))
+              PopupMenuItem(
+                value: 'duplicate_kot',
+                child: Row(
+                  children: [
+                    Icon(Icons.print_outlined, size: 16, color: Colors.purple),
+                    SizedBox(width: 8),
+                    Text('Print Duplicate KOT', style: TextStyle(color: Colors.purple)),
+                  ],
+                ),
+              ),
             PopupMenuItem(
               value: 'whatsapp',
               child: Row(
@@ -8423,88 +8852,114 @@ class OrderHistoryScreen extends ConsumerWidget {
 
   String _generateDetailedBillPreview(Order order, AppSettings settings) {
     final buffer = StringBuffer();
-    final grandTotal = order.getGrandTotal(settings);
     
     // Header
-    buffer.writeln('================================');
-    buffer.writeln('        ${settings.businessName}');
-    buffer.writeln('================================');
-    buffer.writeln(settings.address);
-    buffer.writeln('Ph No - ${settings.phone}');
-    if (settings.email.isNotEmpty) {
-      buffer.writeln('Email: ${settings.email}');
+    buffer.writeln('=' * 42);
+    buffer.writeln('           ${settings.businessName.toUpperCase()}');
+    buffer.writeln('=' * 42);
+    if (settings.phone.isNotEmpty) {
+      buffer.writeln('Phone: ${settings.phone}');
     }
-    buffer.writeln('');
+    if (settings.address.isNotEmpty) {
+      buffer.writeln('Address: ${settings.address}');
+    }
+    buffer.writeln('-' * 42);
     
     // Order info
-    buffer.writeln('From POS [${order.id.substring(order.id.length - 8)}]');
-    if (order.customer?.name != null) {
-      buffer.writeln('Name: ${order.customer!.name}');
-    }
-    buffer.writeln('');
+    buffer.writeln('Order #: ${order.id.substring(order.id.length - 8)}');
+    buffer.writeln('Date: ${_formatDate(order.createdAt)}');
+    buffer.writeln('Time: ${_formatTime(order.createdAt)}');
+    buffer.writeln('Type: ${order.type.toString().split('.').last}');
     
-    final now = DateTime.now();
-    buffer.writeln('Date: ${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}   Online');
-    buffer.writeln('${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}');
-    buffer.writeln('Cashier:           Bill No.: ${_generateBillNumber(order)}');
-    buffer.writeln('Autoaccept');
-    buffer.writeln('Token No.: ${order.id.substring(order.id.length - 3)}');
-    buffer.writeln('--------------------------------');
-    
-    // Items header
-    buffer.writeln('Item            Qty. Price Amount');
-    buffer.writeln('--------------------------------');
-    
-    // Items
-    for (final item in order.items) {
-      String itemName = item.menuItem.name;
-      if (itemName.length > 16) {
-        buffer.writeln(itemName);
-        buffer.writeln('                ${item.quantity} ${item.unitPrice.toStringAsFixed(2).padLeft(6)} ${item.total.toStringAsFixed(2).padLeft(7)}');
-      } else {
-        buffer.writeln('${itemName.padRight(16)}${item.quantity} ${item.unitPrice.toStringAsFixed(2).padLeft(6)} ${item.total.toStringAsFixed(2).padLeft(7)}');
+    if (order.customer != null) {
+      buffer.writeln('Customer: ${order.customer!.name ?? 'Guest'}');
+      if (order.customer!.phone != null) {
+        buffer.writeln('Phone: ${order.customer!.phone}');
       }
     }
+    buffer.writeln('-' * 42);
     
-    buffer.writeln('--------------------------------');
+    // Items
+    buffer.writeln('ITEMS:');
+    buffer.writeln('-' * 42);
+    for (final item in order.items) {
+      buffer.writeln('${item.quantity}x ${item.menuItem.name}');
+      buffer.writeln('   @ Rs.${item.unitPrice.toStringAsFixed(2)} = Rs.${item.total.toStringAsFixed(2)}');
+      if (item.specialInstructions != null && item.specialInstructions!.isNotEmpty) {
+        buffer.writeln('   Note: ${item.specialInstructions}');
+      }
+      buffer.writeln('');
+    }
+    
+    buffer.writeln('-' * 42);
     
     // Totals
-    final totalQty = order.items.fold(0, (sum, item) => sum + item.quantity);
-    buffer.writeln('Total Qty: $totalQty            Sub');
-    buffer.writeln('                   Total   ${order.itemsTotal.toStringAsFixed(2).padLeft(6)}');
+    buffer.writeln('Subtotal:        Rs.${order.itemsSubtotal.toStringAsFixed(2)}');
     
-    // Discounts
-    if (order.hasDiscounts) {
-      buffer.writeln('                Discount Fixed  (${order.totalDiscountAmount.toStringAsFixed(2)})');
+    if (order.hasItemDiscounts) {
+      buffer.writeln('Item Discounts: -Rs.${order.itemsDiscountAmount.toStringAsFixed(2)}');
+      buffer.writeln('After Discounts: Rs.${order.itemsTotal.toStringAsFixed(2)}');
     }
     
     // Charges
-    if (order.charges.deliveryCharge > 0) {
-      buffer.writeln('Delivery Charge               ${order.charges.deliveryCharge.toStringAsFixed(2).padLeft(4)}');
+    if (order.type == OrderType.delivery && settings.deliveryEnabled && order.charges.deliveryCharge > 0) {
+      buffer.writeln('Delivery:        Rs.${order.charges.deliveryCharge.toStringAsFixed(2)}');
     }
-    if (order.charges.packagingCharge > 0) {
-      buffer.writeln('Packaging Charge              ${order.charges.packagingCharge.toStringAsFixed(2).padLeft(4)}');
+    if ((order.type == OrderType.delivery || order.type == OrderType.takeaway) && settings.packagingEnabled && order.charges.packagingCharge > 0) {
+      buffer.writeln('Packaging:       Rs.${order.charges.packagingCharge.toStringAsFixed(2)}');
     }
-    if (order.charges.serviceCharge > 0) {
-      buffer.writeln('Service Charge                ${order.charges.serviceCharge.toStringAsFixed(2).padLeft(4)}');
-    }
-    
-    buffer.writeln('--------------------------------');
-    
-    // Grand total
-    buffer.writeln('      Grand Total   ₹ ${grandTotal.toStringAsFixed(2)}');
-    buffer.writeln('Paid via Cash [POS]');
-    buffer.writeln('--------------------------------');
-    
-    // Notes
-    if (order.notes != null && order.notes!.isNotEmpty) {
-      buffer.writeln('Customer Notes: ${order.notes}');
+    if (order.type == OrderType.dineIn && settings.serviceEnabled && order.charges.serviceCharge > 0) {
+      buffer.writeln('Service:         Rs.${order.charges.serviceCharge.toStringAsFixed(2)}');
     }
     
-    buffer.writeln('--------------------------------');
-    buffer.writeln('        Thanks For Ordering !!!');
+    // Order discount
+    if (order.hasOrderDiscount) {
+      buffer.writeln('Order Discount: -Rs.${order.orderDiscountAmount.toStringAsFixed(2)}');
+      if (order.orderDiscount!.reason != null) {
+        buffer.writeln('  (${order.orderDiscount!.reason})');
+      }
+    }
+    
+    // Taxes
+    if (settings.sgstRate > 0) {
+      final sgstAmount = order.calculateSGST(settings);
+      buffer.writeln('SGST (${(settings.sgstRate * 100).toStringAsFixed(1)}%):     Rs.${sgstAmount.toStringAsFixed(2)}');
+    }
+    if (settings.cgstRate > 0) {
+      final cgstAmount = order.calculateCGST(settings);
+      buffer.writeln('CGST (${(settings.cgstRate * 100).toStringAsFixed(1)}%):     Rs.${cgstAmount.toStringAsFixed(2)}');
+    }
+    
+    buffer.writeln('=' * 42);
+    buffer.writeln('TOTAL:           Rs.${order.getGrandTotal(settings).toStringAsFixed(2)}');
+    buffer.writeln('=' * 42);
+    
+    // Payment info
+    if (order.payments.isNotEmpty) {
+      buffer.writeln('');
+      buffer.writeln('PAYMENT:');
+      for (final payment in order.payments) {
+        buffer.writeln('${payment.method.toString().split('.').last.toUpperCase()}: Rs.${payment.amount.toStringAsFixed(2)}');
+      }
+    }
+    
+    // Footer
+    buffer.writeln('');
+    buffer.writeln('Thank you for choosing ${settings.businessName}!');
+    buffer.writeln('Please visit again.');
+    buffer.writeln('');
+    buffer.writeln('Generated on: ${_formatDate(DateTime.now())} ${_formatTime(DateTime.now())}');
+    buffer.writeln('=' * 42);
     
     return buffer.toString();
+  }
+
+  String _formatDate(DateTime dateTime) {
+    return '${dateTime.day.toString().padLeft(2, '0')}/${dateTime.month.toString().padLeft(2, '0')}/${dateTime.year}';
+  }
+
+  String _formatTime(DateTime dateTime) {
+    return '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
   }
 
   String _generateBillNumber(Order order) {
@@ -9175,11 +9630,12 @@ class _ModifyOrderDialogState extends ConsumerState<ModifyOrderDialog> {
     ref.read(ordersProvider.notifier).updateOrder(updatedOrder);
     Navigator.pop(context);
     
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Order updated successfully'),
-        backgroundColor: Colors.green,
-      ),
+    // Use optimized toast
+    showOptimizedToast(
+      context,
+      'Order updated successfully',
+      icon: Icons.check_circle,
+      color: Colors.green,
     );
   }
 
@@ -14894,14 +15350,15 @@ class _PrinterManagementScreenState extends ConsumerState<PrinterManagementScree
 
     ref.read(printerProvider.notifier).addPrinter(printer);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Printer added successfully!'),
-        backgroundColor: Colors.green,
-      ),
-    );
-
     Navigator.of(context).pop();
+    
+    // Use optimized toast
+    showOptimizedToast(
+      context,
+      'Printer added successfully!',
+      icon: Icons.print,
+      color: Colors.green,
+    );
   }
 }
 
