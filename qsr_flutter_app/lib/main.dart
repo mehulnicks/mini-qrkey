@@ -76,13 +76,23 @@ class _AuthenticationWrapperState extends State<AuthenticationWrapper> {
       // Check if Firebase is available
       final app = Firebase.app();
       
+      // Get initial auth state
+      final currentUser = FirebaseAuth.instance.currentUser;
+      
+      if (mounted) {
+        setState(() {
+          _currentUser = currentUser;
+          _isLoggedIn = currentUser != null;
+          _isLoading = false;
+        });
+      }
+      
       // Listen to auth state changes
       FirebaseAuth.instance.authStateChanges().listen((User? user) {
         if (mounted) {
           setState(() {
             _currentUser = user;
             _isLoggedIn = user != null;
-            _isLoading = false;
           });
         }
       });
@@ -321,14 +331,35 @@ class FirebaseEnhancedSettingsScreen extends StatelessWidget {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('user_logged_in', false);
       
-      // Show success message
+      // Show success message using optimized toast after navigation
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Successfully logged out'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        // Clear any existing snackbars first
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        
+        // Use a delayed toast to ensure it shows on the login screen
+        Future.delayed(const Duration(milliseconds: 200), () {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Row(
+                  children: [
+                    Icon(Icons.logout, color: Colors.white, size: 20),
+                    SizedBox(width: 8),
+                    Text('Successfully logged out'),
+                  ],
+                ),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 3),
+                behavior: SnackBarBehavior.floating,
+                margin: const EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  bottom: 50,
+                ),
+              ),
+            );
+          }
+        });
       }
       
       // Navigation will be handled by the auth state listener
@@ -759,12 +790,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _obscurePassword = true;
-  final GoogleSignIn _googleSignIn = GoogleSignIn(
-    scopes: [
-      'email',
-      'profile',
-    ],
-  );
+  final GoogleSignIn _googleSignIn = GoogleSignIn();
 
   @override
   void dispose() {
@@ -788,27 +814,56 @@ class _LoginScreenState extends State<LoginScreen> {
       
       // Navigation will be handled by the auth state listener
     } catch (e) {
-      String message = 'Login failed';
-      if (e.toString().contains('user-not-found')) {
-        message = 'No user found with this email address.';
-      } else if (e.toString().contains('wrong-password')) {
-        message = 'Incorrect password.';
-      } else if (e.toString().contains('invalid-email')) {
-        message = 'Invalid email address.';
-      }
+      print('Email login error: $e');
       
-      if (mounted) {
-        _showErrorDialog(message);
+      // Check if authentication actually succeeded despite the error
+      final currentUser = FirebaseAuth.instance.currentUser;
+      
+      if (currentUser != null) {
+        // Authentication was successful despite the error
+        print('Email login succeeded despite error');
+        
+        // Set local login state since auth succeeded
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('user_logged_in', true);
+      } else if (mounted) {
+        // Only show error if authentication actually failed
+        String message = 'Login failed';
+        if (e.toString().contains('user-not-found')) {
+          message = 'No user found with this email address.';
+        } else if (e.toString().contains('wrong-password')) {
+          message = 'Incorrect password.';
+        } else if (e.toString().contains('invalid-email')) {
+          message = 'Invalid email address.';
+        }
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                Expanded(child: Text(message)),
+              ],
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.only(
+              left: 16,
+              right: 16,
+              bottom: 50,
+            ),
+          ),
+        );
         setState(() => _isLoading = false);
+        return;
       }
-      return;
     }
     
-    // Firebase login successful
+    // Firebase login successful - let auth state listener handle navigation
     if (mounted) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => MainAppWithUser(user: FirebaseAuth.instance.currentUser)),
-      );
+      setState(() => _isLoading = false);
     }
   }
 
@@ -816,26 +871,17 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
     
     try {
-      // Sign out any existing session first
-      await _googleSignIn.signOut();
-      await FirebaseAuth.instance.signOut();
-      
       // Trigger the authentication flow
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
       
       if (googleUser == null) {
         // User canceled the sign-in
         setState(() => _isLoading = false);
-        print('Google Sign-In: User cancelled');
         return;
       }
 
-      print('Google Sign-In: User selected - ${googleUser.email}');
-
       // Obtain the auth details from the request
       final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
-      
-      print('Google Sign-In: Got authentication tokens');
 
       // Create a new credential
       final credential = GoogleAuthProvider.credential(
@@ -843,43 +889,50 @@ class _LoginScreenState extends State<LoginScreen> {
         idToken: googleAuth.idToken,
       );
 
-      print('Google Sign-In: Created Firebase credential');
-
       // Sign in to Firebase with the Google user credential
-      final userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
-      
-      print('Google Sign-In: Firebase sign-in successful - ${userCredential.user?.email}');
+      await FirebaseAuth.instance.signInWithCredential(credential);
       
       // Set local login state
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('user_logged_in', true);
       
-      // Show success message
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Welcome, ${userCredential.user?.displayName ?? userCredential.user?.email ?? 'User'}!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-      
       // Navigation will be handled by the auth state listener
       
     } catch (e) {
       print('Google Sign-In error: $e');
-      String errorMessage = 'Google Sign-In failed. Please try again.';
       
-      if (e.toString().contains('network_error')) {
-        errorMessage = 'Network error. Please check your internet connection.';
-      } else if (e.toString().contains('sign_in_canceled')) {
-        errorMessage = 'Sign-in was cancelled.';
-      } else if (e.toString().contains('sign_in_failed')) {
-        errorMessage = 'Google Sign-In failed. Please ensure Google Play Services is available.';
-      }
+      // Check if authentication actually succeeded despite the error
+      // This is a workaround for known Google Sign-In plugin type casting issues
+      final currentUser = FirebaseAuth.instance.currentUser;
       
-      if (mounted) {  
-        _showErrorDialog(errorMessage);
+      if (currentUser != null) {
+        // Authentication was successful despite the error, don't show error message
+        print('Google Sign-In succeeded despite error (known plugin issue)');
+        
+        // Set local login state since auth succeeded
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('user_logged_in', true);
+      } else if (mounted) {
+        // Only show error if authentication actually failed
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.error, color: Colors.white, size: 20),
+                SizedBox(width: 8),
+                Expanded(child: Text('Google Sign-In failed. Please try again.')),
+              ],
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.only(
+              left: 16,
+              right: 16,
+              bottom: 50,
+            ),
+          ),
+        );
       }
     } finally {
       if (mounted) {
@@ -901,17 +954,94 @@ class _LoginScreenState extends State<LoginScreen> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('user_logged_in', true);
       
-      _showSuccessDialog('Account created successfully!');
-      
-    } catch (e) {
-      String message = 'Account creation failed';
-      if (e.toString().contains('weak-password')) {
-        message = 'The password provided is too weak.';
-      } else if (e.toString().contains('email-already-in-use')) {
-        message = 'The account already exists for that email.';
+      // Show success toast
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white, size: 20),
+                SizedBox(width: 8),
+                Text('Account created successfully!'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+            margin: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              bottom: 50,
+            ),
+          ),
+        );
       }
       
-      _showErrorDialog(message);
+    } catch (e) {
+      print('Account creation error: $e');
+      
+      // Check if authentication actually succeeded despite the error
+      final currentUser = FirebaseAuth.instance.currentUser;
+      
+      if (currentUser != null) {
+        // Account creation was successful despite the error
+        print('Account creation succeeded despite error');
+        
+        // Set local login state since auth succeeded
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('user_logged_in', true);
+        
+        // Show success message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.white, size: 20),
+                  SizedBox(width: 8),
+                  Text('Account created successfully!'),
+                ],
+              ),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 3),
+              behavior: SnackBarBehavior.floating,
+              margin: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                bottom: 50,
+              ),
+            ),
+          );
+        }
+      } else if (mounted) {
+        // Only show error if account creation actually failed
+        String message = 'Account creation failed';
+        if (e.toString().contains('weak-password')) {
+          message = 'The password provided is too weak.';
+        } else if (e.toString().contains('email-already-in-use')) {
+          message = 'The account already exists for that email.';
+        }
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                Expanded(child: Text(message)),
+              ],
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.only(
+              left: 16,
+              right: 16,
+              bottom: 50,
+            ),
+          ),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -919,37 +1049,8 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _showErrorDialog(String message) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Error'),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showSuccessDialog(String message) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Success'),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
+  // Removed _showErrorDialog and _showSuccessDialog methods
+  // Now using optimized toast messages for better UX
 
   @override
   Widget build(BuildContext context) {
