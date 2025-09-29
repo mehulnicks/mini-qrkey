@@ -367,7 +367,7 @@ class ScheduledOrderDashboard extends ConsumerWidget {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        border: Border(left: BorderSide(color: statusColor, width: 4)),
+        border: Border.left(color: statusColor, width: 4),
         color: statusColor.withOpacity(0.1),
         borderRadius: BorderRadius.circular(8),
       ),
