@@ -7,6 +7,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'main.dart' show QSRMobileApp;
 import 'dart:convert';
 import 'dart:async';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'kot_screen.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -52,6 +53,7 @@ class AppLocalizations {
       'orders': 'Orders',
       'menu': 'Menu',
       'kot': 'KOT',
+      'reports': 'Reports',
       'settings': 'Settings',
       'dine_in': 'Dine In',
       'takeaway': 'Takeaway',
@@ -218,6 +220,7 @@ class AppLocalizations {
       'orders': 'आर्डर',
       'menu': 'मेनू',
       'kot': 'KOT',
+      'reports': 'रिपोर्ट',
       'settings': 'सेटिंग्स',
       'dine_in': 'डाइन इन',
       'takeaway': 'टेकअवे',
@@ -3268,7 +3271,7 @@ class AppSettings {
   double get totalTaxRate => sgstRate + cgstRate;
 }
 
-// Customer Data Models
+// Customer Analytics Data Models
 class CustomerData {
   final String? name;
   final String? phone;
@@ -7175,7 +7178,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     print('DEBUG: Order added with status: ${orderWithoutPayment.status}');
     print('DEBUG: Order ID: ${orderWithoutPayment.id}');
     
-    // Update customer data if customer info is provided
+    // Update customer analytics data if customer info is provided
     if (customerInfo != null) {
       ref.read(customerDataProvider.notifier).addOrUpdateCustomerFromOrder(orderWithoutPayment);
     }
@@ -7227,7 +7230,7 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
     // Add payments to payment history
     ref.read(paymentHistoryProvider.notifier).addPaymentsForOrder(order.id, payments);
     
-    // Update customer data if customer info is provided
+    // Update customer analytics data if customer info is provided
     if (customerInfo != null) {
       ref.read(customerDataProvider.notifier).addOrUpdateCustomerFromOrder(completedOrder);
     }
@@ -10027,6 +10030,2296 @@ class MenuScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+}
+
+// Settings Screen
+  DateTime _startDate = DateTime.now().subtract(const Duration(days: 30));
+  DateTime _endDate = DateTime.now();
+  ReportFilter _selectedFilter = ReportFilter.last30Days;
+
+  @override
+  Widget build(BuildContext context) {
+    final allOrders = ref.watch(ordersProvider);
+    final settings = ref.watch(settingsProvider);
+
+    // Filter orders by date range
+    final filteredOrders = allOrders.where((order) =>
+        order.createdAt.isAfter(_startDate.subtract(const Duration(days: 1))) &&
+        order.createdAt.isBefore(_endDate.add(const Duration(days: 1)))).toList();
+
+    final totalSales = filteredOrders.fold(0.0, (sum, order) => sum + order.getGrandTotal(settings));
+    final totalOrders = filteredOrders.length;
+    final completedOrders = filteredOrders.where((order) => order.status == OrderStatus.completed).length;
+    final averageOrderValue = totalOrders > 0 ? totalSales / totalOrders : 0.0;
+    final totalItems = filteredOrders.fold(0, (sum, order) => sum + order.items.fold(0, (itemSum, item) => itemSum + item.quantity));
+    
+    // Calculate additional metrics
+    final packagingRevenue = filteredOrders.fold(0.0, (sum, order) => sum + order.charges.packagingCharge);
+    final deliveryRevenue = filteredOrders.fold(0.0, (sum, order) => sum + order.charges.deliveryCharge);
+    
+    // Discount analytics
+    final ordersWithDiscounts = filteredOrders.where((order) => order.hasDiscounts).length;
+    final totalDiscountAmount = filteredOrders.fold(0.0, (sum, order) => sum + order.totalDiscountAmount);
+    final itemDiscountAmount = filteredOrders.fold(0.0, (sum, order) => sum + order.itemsDiscountAmount);
+    final orderDiscountAmount = filteredOrders.fold(0.0, (sum, order) => sum + order.orderDiscountAmount);
+    final discountRate = totalSales > 0 ? (totalDiscountAmount / (totalSales + totalDiscountAmount)) * 100 : 0.0;
+    final avgDiscountPerOrder = totalOrders > 0 ? totalDiscountAmount / totalOrders : 0.0;
+
+    // Top selling items analysis
+    final Map<String, Map<String, dynamic>> itemAnalysis = {};
+    for (final order in filteredOrders) {
+      for (final item in order.items) {
+        final name = item.menuItem.name;
+        if (!itemAnalysis.containsKey(name)) {
+          itemAnalysis[name] = {'quantity': 0, 'revenue': 0.0};
+        }
+        itemAnalysis[name]!['quantity'] += item.quantity;
+        itemAnalysis[name]!['revenue'] += item.unitPrice * item.quantity;
+      }
+    }
+    final topItems = itemAnalysis.entries.toList()
+      ..sort((a, b) => (b.value['quantity'] as int).compareTo(a.value['quantity'] as int));
+
+    // Daily trend analysis
+    final Map<String, Map<String, dynamic>> dailyData = {};
+    for (final order in filteredOrders) {
+      final dateKey = '${order.createdAt.year}-${order.createdAt.month.toString().padLeft(2, '0')}-${order.createdAt.day.toString().padLeft(2, '0')}';
+      if (!dailyData.containsKey(dateKey)) {
+        dailyData[dateKey] = {
+          'date': DateTime(order.createdAt.year, order.createdAt.month, order.createdAt.day),
+          'orders': 0,
+          'sales': 0.0,
+          'items': 0,
+        };
+      }
+      dailyData[dateKey]!['orders']++;
+      dailyData[dateKey]!['sales'] += order.getGrandTotal(settings);
+      dailyData[dateKey]!['items'] += order.items.fold(0, (sum, item) => sum + item.quantity);
+    }
+    final sortedDailyData = dailyData.values.toList()
+      ..sort((a, b) => (b['date'] as DateTime).compareTo(a['date'] as DateTime));
+
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFFF9933), Color(0xFFFFB366)],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              // Enhanced Header with Filters
+              Container(
+                padding: EdgeInsets.all(MediaQuery.of(context).size.width < 400 ? 16 : 20),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Sales Analytics',
+                                style: TextStyle(
+                                  fontSize: MediaQuery.of(context).size.width < 400 ? 18 : 22,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              Text(
+                                '${_formatDate(_startDate)} - ${_formatDate(_endDate)}',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.white70,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.file_download, color: Colors.white, size: 20),
+                              onPressed: () => _exportToCSV(context, filteredOrders, settings),
+                              tooltip: 'Export Reports',
+                              padding: const EdgeInsets.all(8),
+                              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: MediaQuery.of(context).size.width < 400 ? 16 : 20),
+                    // Enhanced Filter Chips Section
+                    Container(
+                      padding: EdgeInsets.all(MediaQuery.of(context).size.width < 400 ? 16 : 20),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.white.withOpacity(0.3), width: 2),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.05),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFF9933).withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Text(
+                                  'Time Period',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                '${_formatDate(_startDate)} - ${_formatDate(_endDate)}',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            height: 36,
+                            child: ListView(
+                              scrollDirection: Axis.horizontal,
+                              children: [
+                                _buildFilterChip('Today', ReportFilter.today),
+                                _buildFilterChip('Yesterday', ReportFilter.yesterday),
+                                _buildFilterChip('Last 7 Days', ReportFilter.last7Days),
+                                _buildFilterChip('Custom Date', ReportFilter.custom),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Main Content Area
+              Expanded(
+                child: Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(20),
+                      topRight: Radius.circular(20),
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: SingleChildScrollView(
+                          padding: EdgeInsets.all(MediaQuery.of(context).size.width < 400 ? 16 : 20),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Enhanced Key Metrics Section
+                              Container(
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      const Color(0xFFFF9933).withOpacity(0.05),
+                                      Colors.white,
+                                    ],
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                  ),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: const Color(0xFFFF9933).withOpacity(0.1)),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(6),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFFF9933).withOpacity(0.1),
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                          child: const Icon(
+                                            Icons.analytics,
+                                            color: Color(0xFFFF9933),
+                                            size: 20,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        const Text(
+                                          'Performance Overview',
+                                          style: TextStyle(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.black87,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 20),
+                                    GridView.count(
+                                      shrinkWrap: true,
+                                      physics: const NeverScrollableScrollPhysics(),
+                                      crossAxisCount: MediaQuery.of(context).size.width < 600 ? 2 : 3,
+                                      mainAxisSpacing: MediaQuery.of(context).size.width < 400 ? 8 : 12,
+                                      crossAxisSpacing: MediaQuery.of(context).size.width < 400 ? 8 : 12,
+                                      childAspectRatio: MediaQuery.of(context).size.width < 400 ? 1.2 : 1.1,
+                                      children: [
+                                        _buildMetricCard(
+                                          'Total Orders',
+                                          '$totalOrders',
+                                          Icons.receipt_long,
+                                          Colors.blue,
+                                          '$completedOrders completed',
+                                        ),
+                                        _buildMetricCard(
+                                          'Gross Sales',
+                                          formatIndianCurrency(settings.currency, totalSales),
+                                          Icons.trending_up,
+                                          Colors.green,
+                                          '${totalOrders > 0 ? (totalSales / totalOrders).toStringAsFixed(0) : '0'} avg per order',
+                                        ),
+                                        _buildMetricCard(
+                                          'Items Sold',
+                                          '$totalItems',
+                                          Icons.inventory,
+                                          Colors.orange,
+                                          '${totalOrders > 0 ? (totalItems / totalOrders).toStringAsFixed(1) : '0'} avg per order',
+                                        ),
+                                        _buildMetricCard(
+                                          'Packaging Revenue',
+                                          formatIndianCurrency(settings.currency, packagingRevenue),
+                                          Icons.inventory_2,
+                                          Colors.teal,
+                                          totalOrders > 0 ? '${(packagingRevenue / totalOrders).toStringAsFixed(0)} avg per order' : 'No charges',
+                                        ),
+                                        _buildMetricCard(
+                                          'Delivery Revenue',
+                                          formatIndianCurrency(settings.currency, deliveryRevenue),
+                                          Icons.delivery_dining,
+                                          Colors.indigo,
+                                          totalOrders > 0 ? '${(deliveryRevenue / totalOrders).toStringAsFixed(0)} avg per order' : 'No deliveries',
+                                        ),
+                                        _buildMetricCard(
+                                          'Total Discounts',
+                                          formatIndianCurrency(settings.currency, totalDiscountAmount),
+                                          Icons.local_offer,
+                                          Colors.red,
+                                          '$ordersWithDiscounts orders (${discountRate.toStringAsFixed(1)}%)',
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              
+                              const SizedBox(height: 20),
+                              
+                              // Discount Analytics Section
+                              if (totalDiscountAmount > 0) ...[
+                                Container(
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        Colors.red.withOpacity(0.05),
+                                        Colors.white,
+                                      ],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    ),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(color: Colors.red.withOpacity(0.2)),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Container(
+                                            padding: const EdgeInsets.all(6),
+                                            decoration: BoxDecoration(
+                                              color: Colors.red.withOpacity(0.1),
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: const Icon(
+                                              Icons.local_offer,
+                                              color: Colors.red,
+                                              size: 20,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          const Text(
+                                            'Discount Analytics',
+                                            style: TextStyle(
+                                              fontSize: 18,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.black87,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 20),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: _buildDiscountMetricCard(
+                                              'Total Discounts',
+                                              formatIndianCurrency(settings.currency, totalDiscountAmount),
+                                              '${discountRate.toStringAsFixed(1)}% of sales',
+                                              Icons.discount,
+                                              Colors.red,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: _buildDiscountMetricCard(
+                                              'Orders with Discounts',
+                                              '$ordersWithDiscounts',
+                                              '${totalOrders > 0 ? ((ordersWithDiscounts / totalOrders) * 100).toStringAsFixed(1) : 0}% of orders',
+                                              Icons.receipt,
+                                              Colors.orange,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: _buildDiscountMetricCard(
+                                              'Item Discounts',
+                                              formatIndianCurrency(settings.currency, itemDiscountAmount),
+                                              '${totalDiscountAmount > 0 ? ((itemDiscountAmount / totalDiscountAmount) * 100).toStringAsFixed(1) : 0}% of total',
+                                              Icons.inventory,
+                                              Colors.purple,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: _buildDiscountMetricCard(
+                                              'Order Discounts',
+                                              formatIndianCurrency(settings.currency, orderDiscountAmount),
+                                              '${totalDiscountAmount > 0 ? ((orderDiscountAmount / totalDiscountAmount) * 100).toStringAsFixed(1) : 0}% of total',
+                                              Icons.shopping_cart,
+                                              Colors.teal,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 16),
+                                      Container(
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey[50],
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(color: Colors.grey[200]!),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            const Icon(Icons.info_outline, color: Colors.blue, size: 16),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: Text(
+                                                'Average discount per order: ${formatIndianCurrency(settings.currency, avgDiscountPerOrder)}',
+                                                style: const TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.black87,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 20),
+                              ],
+                              
+                              // Top Items Section Removed - Only Revenue by Order Type Shown
+                              /*
+                              Container(
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      Colors.amber.withOpacity(0.05),
+                                      Colors.white,
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: Colors.amber.withOpacity(0.2)),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.amber.withOpacity(0.1),
+                                      blurRadius: 6,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: Column(
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Container(
+                                              padding: const EdgeInsets.all(8),
+                                              decoration: BoxDecoration(
+                                                color: Colors.amber.withOpacity(0.15),
+                                                borderRadius: BorderRadius.circular(12),
+                                              ),
+                                              child: const Icon(
+                                                Icons.star,
+                                                color: Colors.amber,
+                                                size: 24,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            const Text(
+                                              'Top Selling Items',
+                                              style: TextStyle(
+                                                fontSize: 22,
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.black87,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        TextButton.icon(
+                                          onPressed: () {
+                                            // Show full item analysis
+                                          },
+                                          icon: const Icon(Icons.analytics, size: 16),
+                                          label: const Text('View All'),
+                                          style: TextButton.styleFrom(
+                                            foregroundColor: const Color(0xFFFF9933),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 20),
+                                    Container(
+                                      padding: const EdgeInsets.all(20),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(color: Colors.grey[200]!),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.grey.withOpacity(0.1),
+                                            blurRadius: 8,
+                                            offset: const Offset(0, 2),
+                                          ),
+                                        ],
+                                      ),
+                                      child: topItems.isEmpty
+                                          ? const Center(
+                                              child: Padding(
+                                                padding: EdgeInsets.all(20),
+                                                child: Column(
+                                                  children: [
+                                                    Icon(
+                                                      Icons.inventory_2_outlined,
+                                                      size: 48,
+                                                      color: Colors.grey,
+                                                    ),
+                                                    SizedBox(height: 12),
+                                                    Text(
+                                                      'No items sold in this period',
+                                                      style: TextStyle(
+                                                        color: Colors.grey,
+                                                        fontSize: 16,
+                                                        fontWeight: FontWeight.w500,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            )
+                                          : Column(
+                                              children: topItems
+                                                  .take(5)
+                                                  .map((entry) => _buildTopItemRow(
+                                                        topItems.indexOf(entry) + 1,
+                                                        entry.key,
+                                                        entry.value['quantity'],
+                                                        entry.value['revenue'],
+                                                        settings,
+                                                      ))
+                                                  .toList(),
+                                            ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              */
+                              
+                              const SizedBox(height: 20),
+                              
+                              // Revenue by Order Type Section
+                              ..._buildOrderTypeAnalysis(filteredOrders, settings),
+                              
+                              const SizedBox(height: 20),
+                              
+                              // Revenue by Payment Types Chart
+                              ..._buildPaymentTypeAnalysis(filteredOrders, settings),
+                              
+                              const SizedBox(height: 20),
+                              
+                              // Revenue by Categories Chart
+                              ..._buildCategoryAnalysis(filteredOrders, settings),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Revenue by Order Type Methods
+  List<Widget> _buildOrderTypeAnalysis(List<Order> filteredOrders, AppSettings settings) {
+    // Calculate order type statistics
+    final orderTypeStats = _calculateOrderTypeStats(filteredOrders, settings);
+    
+    return [
+      // Revenue by Order Type - Simplified Report
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Colors.green.withOpacity(0.05),
+              Colors.white,
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.green.withOpacity(0.2)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.green.withOpacity(0.1),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.bar_chart,
+                    color: Colors.green,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  l10n(ref, 'revenue_by_type'),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            
+            // Revenue Bar Chart
+            Container(
+              height: 200,
+              child: _buildRevenueBarChart(orderTypeStats, settings),
+            ),
+          ],
+        ),
+      ),
+    ];
+  }
+
+  Map<OrderType, Map<String, dynamic>> _calculateOrderTypeStats(List<Order> orders, AppSettings settings) {
+    final stats = <OrderType, Map<String, dynamic>>{
+      OrderType.dineIn: {
+        'count': 0,
+        'revenue': 0.0,
+        'items': 0,
+        'avgOrder': 0.0,
+        'percentage': 0.0,
+        'color': Colors.blue,
+        'icon': Icons.restaurant,
+        'label': 'Dine In',
+        'emoji': '🍽️',
+      },
+      OrderType.takeaway: {
+        'count': 0,
+        'revenue': 0.0,
+        'items': 0,
+        'avgOrder': 0.0,
+        'percentage': 0.0,
+        'color': Colors.orange,
+        'icon': Icons.takeout_dining,
+        'label': 'Takeaway',
+        'emoji': '🥡',
+      },
+      OrderType.delivery: {
+        'count': 0,
+        'revenue': 0.0,
+        'items': 0,
+        'avgOrder': 0.0,
+        'percentage': 0.0,
+        'color': Colors.green,
+        'icon': Icons.delivery_dining,
+        'label': 'Delivery',
+        'emoji': '🚚',
+      },
+    };
+
+    final totalOrders = orders.length;
+    
+    for (final order in orders) {
+      final type = order.type;
+      stats[type]!['count']++;
+      stats[type]!['revenue'] += order.getGrandTotal(settings);
+      stats[type]!['items'] += order.items.fold(0, (sum, item) => sum + item.quantity);
+    }
+    
+    // Calculate averages and percentages
+    for (final type in OrderType.values) {
+      final count = stats[type]!['count'] as int;
+      final revenue = stats[type]!['revenue'] as double;
+      
+      stats[type]!['avgOrder'] = count > 0 ? revenue / count : 0.0;
+      stats[type]!['percentage'] = totalOrders > 0 ? (count / totalOrders) * 100 : 0.0;
+    }
+    
+    return stats;
+  }
+
+
+
+
+
+  Widget _buildRevenueBarChart(Map<OrderType, Map<String, dynamic>> stats, AppSettings settings) {
+    final maxRevenue = stats.values
+        .map((data) => data['revenue'] as double)
+        .fold(0.0, (max, revenue) => revenue > max ? revenue : max);
+
+    return Column(
+      children: stats.entries.map((entry) {
+        final revenue = entry.value['revenue'] as double;
+        final color = entry.value['color'] as Color;
+        final label = entry.value['label'] as String;
+        final emoji = entry.value['emoji'] as String;
+        final percentage = maxRevenue > 0 ? (revenue / maxRevenue) : 0.0;
+        
+        return Container(
+          margin: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  SizedBox(
+                    width: 80,
+                    child: Text(
+                      '$emoji $label',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Container(
+                      height: 20,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[200],
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: FractionallySizedBox(
+                        alignment: Alignment.centerLeft,
+                        widthFactor: percentage,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [color, color.withOpacity(0.7)],
+                              begin: Alignment.centerLeft,
+                              end: Alignment.centerRight,
+                            ),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 80,
+                    child: Text(
+                      formatIndianCurrency(settings.currency, revenue),
+                      textAlign: TextAlign.end,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  // Revenue by Payment Types Analysis
+  List<Widget> _buildPaymentTypeAnalysis(List<Order> filteredOrders, AppSettings settings) {
+    // Calculate payment type statistics
+    final paymentTypeStats = _calculatePaymentTypeStats(filteredOrders);
+    
+    if (paymentTypeStats.isEmpty) {
+      return [];
+    }
+    
+    return [
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Colors.purple.withOpacity(0.05),
+              Colors.white,
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.purple.withOpacity(0.2)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.purple.withOpacity(0.1),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.purple.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.payment,
+                    color: Colors.purple,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Text(
+                  'Revenue by Payment Types',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            
+            // Payment Type Bar Chart
+            Container(
+              height: 200,
+              child: _buildPaymentTypeBarChart(paymentTypeStats, settings),
+            ),
+          ],
+        ),
+      ),
+    ];
+  }
+
+  Map<String, Map<String, dynamic>> _calculatePaymentTypeStats(List<Order> orders) {
+    final stats = <String, Map<String, dynamic>>{};
+    final colors = [Colors.purple, Colors.blue, Colors.green, Colors.orange, Colors.red, Colors.teal];
+    final icons = [Icons.credit_card, Icons.payments, Icons.account_balance_wallet, Icons.mobile_friendly, Icons.qr_code, Icons.payment];
+    int colorIndex = 0;
+    
+    for (final order in orders) {
+      for (final payment in order.payments) {
+        final methodName = _getPaymentMethodDisplayName(payment.method);
+        
+        if (!stats.containsKey(methodName)) {
+          stats[methodName] = {
+            'revenue': 0.0,
+            'count': 0,
+            'color': colors[colorIndex % colors.length],
+            'icon': icons[colorIndex % icons.length],
+          };
+          colorIndex++;
+        }
+        
+        stats[methodName]!['revenue'] += payment.amount;
+        stats[methodName]!['count']++;
+      }
+    }
+    
+    return stats;
+  }
+
+  String _getPaymentMethodDisplayName(PaymentMethod method) {
+    switch (method) {
+      case PaymentMethod.cash:
+        return 'Cash';
+      case PaymentMethod.card:
+        return 'Card';
+      case PaymentMethod.upi:
+        return 'UPI';
+      case PaymentMethod.online:
+        return 'Online';
+      default:
+        return 'Other';
+    }
+  }
+
+  Widget _buildPaymentTypeBarChart(Map<String, Map<String, dynamic>> stats, AppSettings settings) {
+    final maxRevenue = stats.values
+        .map((data) => data['revenue'] as double)
+        .fold(0.0, (max, revenue) => revenue > max ? revenue : max);
+
+    if (maxRevenue == 0) {
+      return const Center(
+        child: Text(
+          'No payment data available',
+          style: TextStyle(color: Colors.grey, fontSize: 14),
+        ),
+      );
+    }
+
+    return Column(
+      children: stats.entries.map((entry) {
+        final revenue = entry.value['revenue'] as double;
+        final count = entry.value['count'] as int;
+        final color = entry.value['color'] as Color;
+        final methodName = entry.key;
+        final percentage = maxRevenue > 0 ? (revenue / maxRevenue) : 0.0;
+        
+        return Container(
+          margin: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  SizedBox(
+                    width: 80,
+                    child: Text(
+                      methodName,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Container(
+                      height: 20,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[200],
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: FractionallySizedBox(
+                        alignment: Alignment.centerLeft,
+                        widthFactor: percentage,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [color, color.withOpacity(0.7)],
+                              begin: Alignment.centerLeft,
+                              end: Alignment.centerRight,
+                            ),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 80,
+                    child: Text(
+                      formatIndianCurrency(settings.currency, revenue),
+                      textAlign: TextAlign.end,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '($count)',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  // Revenue by Categories Analysis
+  List<Widget> _buildCategoryAnalysis(List<Order> filteredOrders, AppSettings settings) {
+    // Calculate category statistics
+    final categoryStats = _calculateCategoryStats(filteredOrders);
+    
+    if (categoryStats.isEmpty) {
+      return [];
+    }
+    
+    return [
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Colors.amber.withOpacity(0.05),
+              Colors.white,
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.amber.withOpacity(0.2)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.amber.withOpacity(0.1),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.category,
+                    color: Colors.amber,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Text(
+                  'Revenue by Categories',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            
+            // Category Bar Chart
+            Container(
+              height: 250, // Slightly taller for potentially more categories
+              child: _buildCategoryBarChart(categoryStats, settings),
+            ),
+          ],
+        ),
+      ),
+    ];
+  }
+
+  Map<String, Map<String, dynamic>> _calculateCategoryStats(List<Order> orders) {
+    final stats = <String, Map<String, dynamic>>{};
+    final colors = [
+      Colors.amber, Colors.deepOrange, Colors.teal, Colors.indigo, 
+      Colors.pink, Colors.cyan, Colors.lime, Colors.deepPurple,
+      Colors.brown, Colors.red
+    ];
+    int colorIndex = 0;
+    
+    for (final order in orders) {
+      for (final item in order.items) {
+        final category = item.menuItem.category;
+        
+        if (!stats.containsKey(category)) {
+          stats[category] = {
+            'revenue': 0.0,
+            'quantity': 0,
+            'itemCount': 0,
+            'color': colors[colorIndex % colors.length],
+          };
+          colorIndex++;
+        }
+        
+        stats[category]!['revenue'] += item.total;
+        stats[category]!['quantity'] += item.quantity;
+        stats[category]!['itemCount']++;
+      }
+    }
+    
+    return stats;
+  }
+
+  Widget _buildCategoryBarChart(Map<String, Map<String, dynamic>> stats, AppSettings settings) {
+    final maxRevenue = stats.values
+        .map((data) => data['revenue'] as double)
+        .fold(0.0, (max, revenue) => revenue > max ? revenue : max);
+
+    if (maxRevenue == 0) {
+      return const Center(
+        child: Text(
+          'No category data available',
+          style: TextStyle(color: Colors.grey, fontSize: 14),
+        ),
+      );
+    }
+
+    // Sort categories by revenue (descending)
+    final sortedStats = stats.entries.toList()
+      ..sort((a, b) => (b.value['revenue'] as double).compareTo(a.value['revenue'] as double));
+
+    return SingleChildScrollView(
+      child: Column(
+        children: sortedStats.map((entry) {
+          final revenue = entry.value['revenue'] as double;
+          final quantity = entry.value['quantity'] as int;
+          final color = entry.value['color'] as Color;
+          final categoryName = entry.key;
+          final percentage = maxRevenue > 0 ? (revenue / maxRevenue) : 0.0;
+          
+          return Container(
+            margin: const EdgeInsets.symmetric(vertical: 6),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 90,
+                      child: Text(
+                        categoryName,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Container(
+                        height: 18,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[200],
+                          borderRadius: BorderRadius.circular(9),
+                        ),
+                        child: FractionallySizedBox(
+                          alignment: Alignment.centerLeft,
+                          widthFactor: percentage,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [color, color.withOpacity(0.7)],
+                                begin: Alignment.centerLeft,
+                                end: Alignment.centerRight,
+                              ),
+                              borderRadius: BorderRadius.circular(9),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 75,
+                      child: Text(
+                        formatIndianCurrency(settings.currency, revenue),
+                        textAlign: TextAlign.end,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '($quantity)',
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  void _showKOTSummaryDialog(BuildContext context, List<Order> orders, String businessName) {
+    final dateRange = '${_formatKOTTimestamp(_startDate)} to ${_formatKOTTimestamp(_endDate)}';
+    final settings = ref.read(settingsProvider);
+    final summaryContent = _formatKOTSummaryReport(
+      dateRange,
+      orders,
+      DateTime.now(),
+      businessName,
+      settings,
+    );
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.print, color: Color(0xFFFF9933)),
+            const SizedBox(width: 8),
+            Text(l10n(ref, 'kot_summary')),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.blue,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'REPORT',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Container(
+          width: double.maxFinite,
+          constraints: const BoxConstraints(maxHeight: 500),
+          child: SingleChildScrollView(
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey[300]!),
+                borderRadius: BorderRadius.circular(8),
+                color: Colors.grey[50],
+              ),
+              child: Text(
+                summaryContent,
+                style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  height: 1.2,
+                ),
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(l10n(ref, 'close')),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              // In a real implementation, this would send to printer
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('${l10n(ref, 'kot_summary')} sent to printer'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+              Navigator.pop(context);
+            },
+            icon: const Icon(Icons.print),
+            label: Text(l10n(ref, 'print_again')),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF9933),
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    // Console output for debugging
+    print('=== KOT SUMMARY REPORT ===');
+    print(summaryContent);
+    print('==========================');
+  }
+
+  // Helper methods to access the KOT formatting functions
+  String _formatKOTSummaryReport(String dateRange, List<Order> orders, DateTime printTime, String businessName, AppSettings settings) {
+    // Create a temporary OrderPlacementScreen to access the formatting method
+    // In a real app, these would be static methods or in a separate utility class
+    final buffer = StringBuffer();
+    
+    // Header: "KOT Summary – <Range>" with printed timestamp
+    buffer.writeln('================================');
+    buffer.writeln('     KOT SUMMARY - $dateRange');
+    buffer.writeln('================================');
+    buffer.writeln('Generated: ${_formatKOTTimestamp(printTime)}');
+    buffer.writeln('--------------------------------');
+    
+    // Metrics: Orders, Gross Sales, Average Order, Items Sold
+    final totalOrders = orders.length;
+    final grossSales = orders.fold(0.0, (sum, order) => sum + order.getGrandTotal(settings));
+    final averageOrder = totalOrders > 0 ? grossSales / totalOrders : 0.0;
+    final totalItems = orders.fold(0, (sum, order) => 
+      sum + order.items.fold(0, (itemSum, item) => itemSum + item.quantity));
+    
+    buffer.writeln('METRICS:');
+    buffer.writeln('Orders: $totalOrders');
+    buffer.writeln('Gross Sales: ₹${grossSales.toStringAsFixed(2)}');
+    buffer.writeln('Avg Order: ₹${averageOrder.toStringAsFixed(2)}');
+    buffer.writeln('Items Sold: $totalItems');
+    buffer.writeln('--------------------------------');
+    
+    // Top Items: name x qty
+    final Map<String, int> itemCounts = {};
+    for (final order in orders) {
+      for (final item in order.items) {
+        itemCounts[item.menuItem.name] = 
+          (itemCounts[item.menuItem.name] ?? 0) + item.quantity;
+      }
+    }
+    
+    final topItems = itemCounts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    
+    if (topItems.isNotEmpty) {
+      buffer.writeln('TOP ITEMS:');
+      for (int i = 0; i < topItems.length && i < 5; i++) {
+        final item = topItems[i];
+        buffer.writeln('${item.key} x${item.value}');
+      }
+      buffer.writeln('--------------------------------');
+    }
+    
+    // Footer: deviceId/store
+    buffer.writeln('Store: $businessName');
+    buffer.writeln('Device: POS-Terminal-01');
+    buffer.writeln('================================');
+    
+    return buffer.toString();
+  }
+
+  String _formatKOTTimestamp(DateTime dateTime) {
+    return '${dateTime.day.toString().padLeft(2, '0')}/${dateTime.month.toString().padLeft(2, '0')}/${dateTime.year} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+  }
+
+  // Enhanced Report Helper Methods
+  Widget _buildFilterChip(String label, ReportFilter filter) {
+    final isSelected = _selectedFilter == filter;
+    final isMobile = MediaQuery.of(context).size.width < 400;
+    
+    return Container(
+      margin: EdgeInsets.only(right: isMobile ? 6 : 8),
+      child: Material(
+        elevation: isSelected ? 4 : 2,
+        borderRadius: BorderRadius.circular(10),
+        shadowColor: isSelected ? const Color(0xFFFF9933).withOpacity(0.4) : Colors.black26,
+        child: InkWell(
+          onTap: () => _applyFilter(filter),
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: isMobile ? 10 : 12, 
+              vertical: isMobile ? 6 : 8,
+            ),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: isSelected 
+                  ? [const Color(0xFFFF9933), const Color(0xFFFFB366)]
+                  : [Colors.white, const Color(0xFFF8F9FA)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: isSelected ? const Color(0xFFFF9933) : const Color(0xFF34495E),
+                width: isSelected ? 1.5 : 1.2,
+              ),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? Colors.white : const Color(0xFF2C3E50),
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w700,
+                fontSize: isMobile ? 11 : 13,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _applyFilter(ReportFilter filter) {
+    setState(() {
+      _selectedFilter = filter;
+      final now = DateTime.now();
+      
+      switch (filter) {
+        case ReportFilter.today:
+          _startDate = DateTime(now.year, now.month, now.day);
+          _endDate = now;
+          break;
+        case ReportFilter.yesterday:
+          final yesterday = now.subtract(const Duration(days: 1));
+          _startDate = DateTime(yesterday.year, yesterday.month, yesterday.day);
+          _endDate = DateTime(yesterday.year, yesterday.month, yesterday.day, 23, 59, 59);
+          break;
+        case ReportFilter.last7Days:
+          _startDate = now.subtract(const Duration(days: 7));
+          _endDate = now;
+          break;
+        case ReportFilter.custom:
+          _showDateRangePicker(context);
+          break;
+        // Handle removed cases with default behavior
+        case ReportFilter.thisWeek:
+        case ReportFilter.thisMonth:
+        case ReportFilter.last30Days:
+        case ReportFilter.thisYear:
+          // Default to today if these are somehow selected
+          _startDate = DateTime(now.year, now.month, now.day);
+          _endDate = now;
+          break;
+      }
+    });
+  }
+
+  Widget _buildMetricCard(String title, String value, IconData icon, Color color, String subtitle) {
+    final isMobile = MediaQuery.of(context).size.width < 400;
+    
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(isMobile ? 12 : 16),
+        gradient: LinearGradient(
+          colors: [
+            color.withOpacity(0.1),
+            color.withOpacity(0.05),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        border: Border.all(color: color.withOpacity(0.2)),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.1),
+            blurRadius: isMobile ? 4 : 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(isMobile ? 8 : 12),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: EdgeInsets.all(isMobile ? 4 : 6),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Icon(icon, size: isMobile ? 14 : 18, color: color),
+            ),
+            SizedBox(height: isMobile ? 4 : 6),
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: isMobile ? 12 : 16,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                ),
+              ),
+            ),
+            SizedBox(height: isMobile ? 2 : 3),
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: isMobile ? 9 : 11,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                ),
+              ),
+            ),
+            SizedBox(height: isMobile ? 1 : 1),
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: isMobile ? 7 : 9,
+                    color: Colors.grey[600],
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDiscountMetricCard(String title, String value, String subtitle, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        gradient: LinearGradient(
+          colors: [
+            color.withOpacity(0.1),
+            color.withOpacity(0.05),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Icon(icon, size: 16, color: color),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.grey[600],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTopItemRow(int rank, String name, int quantity, double revenue, AppSettings settings) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Container(
+            width: 24,
+            height: 24,
+            decoration: BoxDecoration(
+              color: rank <= 3 ? _getRankColor(rank) : Colors.grey[300],
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                '$rank',
+                style: TextStyle(
+                  color: rank <= 3 ? Colors.white : Colors.grey[600],
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  style: const TextStyle(fontWeight: FontWeight.w500),
+                ),
+                Text(
+                  '$quantity items • ${formatIndianCurrency(settings.currency, revenue)}',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFF9933).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              '$quantity sold',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFFFF9933),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _getRankColor(int rank) {
+    switch (rank) {
+      case 1:
+        return Colors.amber; // Gold
+      case 2:
+        return Colors.grey; // Silver
+      case 3:
+        return Colors.brown; // Bronze
+      default:
+        return Colors.grey;
+    }
+  }
+
+  Widget _buildDailyTrendRow(DateTime date, int orders, double sales, int items, AppSettings settings) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.grey[50],
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.grey[200]!),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              flex: 2,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _formatDate(date),
+                    style: const TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                  Text(
+                    _getDayName(date),
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Column(
+                children: [
+                  Text(
+                    '$orders',
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue),
+                  ),
+                  const Text('Orders', style: TextStyle(fontSize: 11)),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Column(
+                children: [
+                  Text(
+                    formatIndianCurrency(settings.currency, sales),
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+                  ),
+                  const Text('Sales', style: TextStyle(fontSize: 11)),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Column(
+                children: [
+                  Text(
+                    '$items',
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.orange),
+                  ),
+                  const Text('Items', style: TextStyle(fontSize: 11)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _exportToCSV(BuildContext context, List<Order> orders, AppSettings settings) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(
+          padding: EdgeInsets.all(MediaQuery.of(context).size.width < 400 ? 16 : 24),
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width < 400 ? MediaQuery.of(context).size.width * 0.9 : 400,
+            maxHeight: MediaQuery.of(context).size.height * 0.7,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF9933).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.file_download, color: Color(0xFFFF9933), size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Export Reports',
+                      style: TextStyle(
+                        fontSize: MediaQuery.of(context).size.width < 400 ? 16 : 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                    iconSize: 20,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Choose the type of report to export:',
+                style: TextStyle(
+                  color: Colors.grey[600],
+                  fontSize: MediaQuery.of(context).size.width < 400 ? 12 : 14,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      _buildExportOption(
+                        context,
+                        'Complete Order Report',
+                        'Detailed report with all order information',
+                        Icons.receipt_long,
+                        () => _exportCompleteOrderReport(context, orders, settings),
+                      ),
+                      const SizedBox(height: 12),
+                      _buildExportOption(
+                        context,
+                        'Sales Summary',
+                        'Summary of sales metrics and totals',
+                        Icons.analytics,
+                        () => _exportSalesSummary(context, orders, settings),
+                      ),
+                      const SizedBox(height: 12),
+                      _buildExportOption(
+                        context,
+                        'Item-wise Report',
+                        'Breakdown by menu items sold',
+                        Icons.inventory_2,
+                        () => _exportItemwiseReport(context, orders, settings),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Text('Cancel'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExportOption(BuildContext context, String title, String subtitle, IconData icon, VoidCallback onTap) {
+    final isMobile = MediaQuery.of(context).size.width < 400;
+    
+    return InkWell(
+      onTap: () {
+        Navigator.pop(context);
+        onTap();
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: EdgeInsets.all(isMobile ? 10 : 12),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey[300]!),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: EdgeInsets.all(isMobile ? 6 : 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFF9933).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, color: const Color(0xFFFF9933), size: isMobile ? 18 : 20),
+            ),
+            SizedBox(width: isMobile ? 10 : 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: isMobile ? 13 : 14,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: Colors.grey[600],
+                      fontSize: isMobile ? 11 : 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.arrow_forward_ios, size: isMobile ? 14 : 16, color: Colors.grey),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _exportCompleteOrderReport(BuildContext context, List<Order> orders, AppSettings settings) {
+    final buffer = StringBuffer();
+    
+    // Report Header
+    buffer.writeln('=== COMPLETE ORDER REPORT ===');
+    buffer.writeln('Business: ${settings.businessName}');
+    buffer.writeln('Period: ${_formatDate(_startDate)} to ${_formatDate(_endDate)}');
+    buffer.writeln('Generated: ${_formatDate(DateTime.now())} at ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}');
+    buffer.writeln('Total Orders: ${orders.length}');
+    buffer.writeln('');
+    
+    // Detailed CSV Header
+    buffer.writeln('Date,Time,Order ID,Customer Name,Phone,Order Type,Status,Items Count,Items Subtotal,Item Discounts,Order Discount,Total Discounts,Subtotal After Discounts,SGST,CGST,Total Tax,Grand Total,Payment Method,Items Detail');
+    
+    // Detailed CSV Data
+    for (final order in orders) {
+      final date = _formatDate(order.createdAt);
+      final time = '${order.createdAt.hour}:${order.createdAt.minute.toString().padLeft(2, '0')}';
+      final orderId = order.id.substring(order.id.length - 8);
+      final customerName = order.customer?.name ?? 'Guest';
+      final phone = order.customer?.phone ?? 'N/A';
+      final orderType = _getOrderTypeLabel(order.type);
+      final status = _getStatusLabel(order.status);
+      final itemsCount = order.items.length;
+      final itemsSubtotal = order.itemsSubtotal.toStringAsFixed(2);
+      final itemDiscounts = order.itemsDiscountAmount.toStringAsFixed(2);
+      final orderDiscount = order.orderDiscountAmount.toStringAsFixed(2);
+      final totalDiscounts = order.totalDiscountAmount.toStringAsFixed(2);
+      final subtotalAfterDiscounts = order.subtotal.toStringAsFixed(2);
+      final sgst = order.calculateSGST(settings).toStringAsFixed(2);
+      final cgst = order.calculateCGST(settings).toStringAsFixed(2);
+      final totalTax = order.calculateTotalTax(settings).toStringAsFixed(2);
+      final total = order.getGrandTotal(settings).toStringAsFixed(2);
+      final paymentMethod = order.payments.isNotEmpty ? 'Paid' : 'Pending';
+      
+      // Items detail with discount information
+      final itemsDetail = order.items.map((item) {
+        String itemDetail = '${item.menuItem.name} (Qty: ${item.quantity}, Price: ${item.unitPrice.toStringAsFixed(2)}';
+        if (item.hasDiscount) {
+          itemDetail += ', Discount: -${item.discountAmount.toStringAsFixed(2)}';
+        }
+        itemDetail += ')';
+        return itemDetail;
+      }).join('; ');
+      
+      buffer.writeln('"$date","$time","$orderId","$customerName","$phone","$orderType","$status",$itemsCount,$itemsSubtotal,$itemDiscounts,$orderDiscount,$totalDiscounts,$subtotalAfterDiscounts,$sgst,$cgst,$totalTax,$total,"$paymentMethod","$itemsDetail"');
+    }
+    
+    _showExportDialog(context, 'Complete Order Report', buffer.toString());
+  }
+
+  void _exportSalesSummary(BuildContext context, List<Order> orders, AppSettings settings) {
+    final buffer = StringBuffer();
+    final totalSales = orders.fold(0.0, (sum, order) => sum + order.getGrandTotal(settings));
+    final totalOrders = orders.length;
+    final avgOrderValue = totalOrders > 0 ? totalSales / totalOrders : 0.0;
+    
+    // Discount analytics
+    final ordersWithDiscounts = orders.where((order) => order.hasDiscounts).length;
+    final totalDiscountAmount = orders.fold(0.0, (sum, order) => sum + order.totalDiscountAmount);
+    final itemDiscountAmount = orders.fold(0.0, (sum, order) => sum + order.itemsDiscountAmount);
+    final orderDiscountAmount = orders.fold(0.0, (sum, order) => sum + order.orderDiscountAmount);
+    final discountRate = totalSales > 0 ? (totalDiscountAmount / (totalSales + totalDiscountAmount)) * 100 : 0.0;
+    
+    // Group by order type
+    final dineInOrders = orders.where((o) => o.type == OrderType.dineIn).length;
+    final takeawayOrders = orders.where((o) => o.type == OrderType.takeaway).length;
+    final deliveryOrders = orders.where((o) => o.type == OrderType.delivery).length;
+    
+    buffer.writeln('=== SALES SUMMARY REPORT ===');
+    buffer.writeln('Business: ${settings.businessName}');
+    buffer.writeln('Period: ${_formatDate(_startDate)} to ${_formatDate(_endDate)}');
+    buffer.writeln('Generated: ${_formatDate(DateTime.now())}');
+    buffer.writeln('');
+    buffer.writeln('OVERVIEW');
+    buffer.writeln('Total Sales,${totalSales.toStringAsFixed(2)}');
+    buffer.writeln('Total Orders,$totalOrders');
+    buffer.writeln('Average Order Value,${avgOrderValue.toStringAsFixed(2)}');
+    buffer.writeln('');
+    buffer.writeln('DISCOUNT ANALYTICS');
+    buffer.writeln('Orders with Discounts,$ordersWithDiscounts');
+    buffer.writeln('Total Discount Amount,${totalDiscountAmount.toStringAsFixed(2)}');
+    buffer.writeln('Item Level Discounts,${itemDiscountAmount.toStringAsFixed(2)}');
+    buffer.writeln('Order Level Discounts,${orderDiscountAmount.toStringAsFixed(2)}');
+    buffer.writeln('Discount Rate (%),"${discountRate.toStringAsFixed(2)}%"');
+    buffer.writeln('Average Discount per Order,${totalOrders > 0 ? (totalDiscountAmount / totalOrders).toStringAsFixed(2) : '0'}');
+    buffer.writeln('');
+    buffer.writeln('ORDER TYPE BREAKDOWN');
+    buffer.writeln('Dine In,$dineInOrders');
+    buffer.writeln('Takeaway,$takeawayOrders');
+    buffer.writeln('Delivery,$deliveryOrders');
+    buffer.writeln('');
+    buffer.writeln('DAILY BREAKDOWN');
+    buffer.writeln('Date,Orders,Sales');
+    
+    // Group by date
+    final dailyData = <String, Map<String, dynamic>>{};
+    for (final order in orders) {
+      final dateKey = _formatDate(order.createdAt);
+      if (!dailyData.containsKey(dateKey)) {
+        dailyData[dateKey] = {'orders': 0, 'sales': 0.0};
+      }
+      dailyData[dateKey]!['orders']++;
+      dailyData[dateKey]!['sales'] += order.getGrandTotal(settings);
+    }
+    
+    for (final entry in dailyData.entries) {
+      buffer.writeln('${entry.key},${entry.value['orders']},${entry.value['sales'].toStringAsFixed(2)}');
+    }
+    
+    _showExportDialog(context, 'Sales Summary Report', buffer.toString());
+  }
+
+  void _exportItemwiseReport(BuildContext context, List<Order> orders, AppSettings settings) {
+    final buffer = StringBuffer();
+    final itemData = <String, Map<String, dynamic>>{};
+    
+    // Aggregate item data
+    for (final order in orders) {
+      for (final item in order.items) {
+        final itemName = item.menuItem.name;
+        if (!itemData.containsKey(itemName)) {
+          itemData[itemName] = {
+            'quantity': 0,
+            'revenue': 0.0,
+            'totalDiscounts': 0.0,
+            'discountedRevenue': 0.0,
+            'ordersWithDiscount': 0,
+            'orders': <String>{},
+          };
+        }
+        itemData[itemName]!['quantity'] += item.quantity;
+        itemData[itemName]!['revenue'] += item.subtotal; // Original revenue before discount
+        itemData[itemName]!['totalDiscounts'] += item.discountAmount;
+        itemData[itemName]!['discountedRevenue'] += item.total; // Actual revenue after discount
+        if (item.hasDiscount) {
+          itemData[itemName]!['ordersWithDiscount']++;
+        }
+        itemData[itemName]!['orders'].add(order.id);
+      }
+    }
+    
+    // Sort by revenue
+    final sortedItems = itemData.entries.toList()
+      ..sort((a, b) => b.value['revenue'].compareTo(a.value['revenue']));
+    
+    buffer.writeln('=== ITEM-WISE SALES REPORT ===');
+    buffer.writeln('Business: ${settings.businessName}');
+    buffer.writeln('Period: ${_formatDate(_startDate)} to ${_formatDate(_endDate)}');
+    buffer.writeln('Generated: ${_formatDate(DateTime.now())}');
+    buffer.writeln('');
+    buffer.writeln('Item Name,Quantity Sold,Original Revenue,Total Discounts,Final Revenue,Orders Count,Orders with Discount,Avg Original Price,Avg Final Price');
+    
+    for (final item in sortedItems) {
+      final name = item.key;
+      final quantity = item.value['quantity'];
+      final originalRevenue = item.value['revenue'].toStringAsFixed(2);
+      final totalDiscounts = item.value['totalDiscounts'].toStringAsFixed(2);
+      final finalRevenue = item.value['discountedRevenue'].toStringAsFixed(2);
+      final ordersCount = (item.value['orders'] as Set).length;
+      final ordersWithDiscount = item.value['ordersWithDiscount'];
+      final avgOriginalPrice = (item.value['revenue'] / quantity).toStringAsFixed(2);
+      final avgFinalPrice = (item.value['discountedRevenue'] / quantity).toStringAsFixed(2);
+      
+      buffer.writeln('"$name",$quantity,$originalRevenue,$totalDiscounts,$finalRevenue,$ordersCount,$ordersWithDiscount,$avgOriginalPrice,$avgFinalPrice');
+    }
+    
+    _showExportDialog(context, 'Item-wise Sales Report', buffer.toString());
+  }
+
+  void _showExportDialog(BuildContext context, String title, String content) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(
+          padding: EdgeInsets.all(MediaQuery.of(context).size.width < 400 ? 16 : 20),
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width < 400 ? MediaQuery.of(context).size.width * 0.95 : 500,
+            maxHeight: MediaQuery.of(context).size.height * 0.8,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF9933).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.file_download, color: Color(0xFFFF9933), size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: MediaQuery.of(context).size.width < 400 ? 14 : 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                    iconSize: 20,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: Container(
+                  width: double.infinity,
+                  padding: EdgeInsets.all(MediaQuery.of(context).size.width < 400 ? 8 : 12),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey[300]!),
+                    borderRadius: BorderRadius.circular(8),
+                    color: Colors.grey[50],
+                  ),
+                  child: SingleChildScrollView(
+                    child: Text(
+                      content,
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: MediaQuery.of(context).size.width < 400 ? 8 : 10,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              MediaQuery.of(context).size.width < 400
+                ? Column(
+                    children: [
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('$title ready for download'),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                            Navigator.pop(context);
+                          },
+                          icon: const Icon(Icons.download, size: 18),
+                          label: const Text('Download Report'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFFF9933),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          child: const Text('Close'),
+                        ),
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          child: const Text('Close'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 2,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('$title ready for download'),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                            Navigator.pop(context);
+                          },
+                          icon: const Icon(Icons.download, size: 18),
+                          label: const Text('Download'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFFF9933),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _formatDate(DateTime date) {
+    return '${date.day}/${date.month}/${date.year}';
+  }
+
+  String _getDayName(DateTime date) {
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    return days[date.weekday % 7];
+  }
+
+  String _formatDateTime(DateTime dateTime) {
+    return '${dateTime.day}/${dateTime.month}/${dateTime.year} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+  }
+
+  Color _getStatusColor(OrderStatus status) {
+    switch (status) {
+      case OrderStatus.pending:
+        return Colors.orange;
+      case OrderStatus.confirmed:
+        return Colors.blue;
+      case OrderStatus.preparing:
+        return Colors.purple;
+      case OrderStatus.ready:
+        return Colors.green;
+      case OrderStatus.completed:
+        return Colors.grey;
+      case OrderStatus.cancelled:
+        return Colors.red;
+    }
+  }
+
+  String _getStatusLabel(OrderStatus status) {
+    switch (status) {
+      case OrderStatus.pending:
+        return 'Pending';
+      case OrderStatus.confirmed:
+        return 'Confirmed';
+      case OrderStatus.preparing:
+        return 'Preparing';
+      case OrderStatus.ready:
+        return 'Ready';
+      case OrderStatus.completed:
+        return 'Completed';
+      case OrderStatus.cancelled:
+        return 'Cancelled';
+    }
+  }
+
+  String _getOrderTypeLabel(OrderType type) {
+    switch (type) {
+      case OrderType.dineIn:
+        return 'Dine In';
+      case OrderType.takeaway:
+        return 'Takeaway';
+      case OrderType.delivery:
+        return 'Delivery';
+    }
+  }
+
+  Future<void> _showDateRangePicker(BuildContext context) async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      initialDateRange: DateTimeRange(start: _startDate, end: _endDate),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: Theme.of(context).colorScheme.copyWith(
+              primary: const Color(0xFFFF9933),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      setState(() {
+        _startDate = picked.start;
+        _endDate = picked.end;
+        _selectedFilter = ReportFilter.custom;
+      });
+    }
   }
 }
 

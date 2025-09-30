@@ -449,57 +449,6 @@ class FirestoreService {
     }
   }
 
-  // ==================== ANALYTICS & REPORTS ====================
-
-  // Get sales analytics
-  static Future<Map<String, dynamic>> getSalesAnalytics({
-    DateTime? startDate,
-    DateTime? endDate,
-  }) async {
-    if (currentUserId == null) return {};
-
-    try {
-      Query query = _ordersCollection
-          .doc(currentUserId)
-          .collection('orders')
-          .where('status', whereIn: [OrderStatus.completed.name]);
-
-      if (startDate != null) {
-        query = query.where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate));
-      }
-      if (endDate != null) {
-        query = query.where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(endDate));
-      }
-
-      QuerySnapshot snapshot = await query.get();
-      
-      double totalRevenue = 0;
-      int totalOrders = snapshot.docs.length;
-      Map<String, int> orderTypeCount = {};
-      Map<String, double> orderTypeRevenue = {};
-
-      for (QueryDocumentSnapshot doc in snapshot.docs) {
-        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-        double grandTotal = (data['grandTotal'] ?? 0).toDouble();
-        String orderType = data['type'] ?? 'unknown';
-        
-        totalRevenue += grandTotal;
-        orderTypeCount[orderType] = (orderTypeCount[orderType] ?? 0) + 1;
-        orderTypeRevenue[orderType] = (orderTypeRevenue[orderType] ?? 0) + grandTotal;
-      }
-
-      return {
-        'totalRevenue': totalRevenue,
-        'totalOrders': totalOrders,
-        'averageOrderValue': totalOrders > 0 ? totalRevenue / totalOrders : 0,
-        'orderTypeCount': orderTypeCount,
-        'orderTypeRevenue': orderTypeRevenue,
-      };
-    } catch (e) {
-      throw 'Failed to get sales analytics: $e';
-    }
-  }
-
   // ==================== HELPER METHODS ====================
 
   static Map<String, dynamic> _orderItemToMap(OrderItem item) {
