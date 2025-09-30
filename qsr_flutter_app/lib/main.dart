@@ -7,6 +7,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'firebase_options.dart';
 import 'clean_qsr_main.dart' as original_app;
 import 'kot_screen.dart';
+import 'core/config/supabase_config.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,6 +21,15 @@ void main() async {
   } catch (e) {
     print('Firebase initialization error: $e');
     // Continue without Firebase for demo purposes
+  }
+  
+  try {
+    // Initialize Supabase
+    await SupabaseConfig.initialize();
+    print('Supabase initialized successfully');
+  } catch (e) {
+    print('Supabase initialization error: $e');
+    // Continue without Supabase for demo purposes
   }
   
   runApp(const ProviderScope(child: QSRMobileApp()));
@@ -155,7 +165,7 @@ class _FirebaseEnhancedMainScreenState extends State<FirebaseEnhancedMainScreen>
   @override
   Widget build(BuildContext context) {
     final List<Widget> screens = [
-      const original_app.OrderPlacementScreen(), // Menu tab
+      original_app.OrderPlacementScreen(), // Menu tab - Non-const to enable enhanced takeaway features
       const original_app.OrderHistoryScreen(), // Orders tab
       const KOTScreen(), // KOT tab
       original_app.SettingsScreen(), // Settings tab with all original features
