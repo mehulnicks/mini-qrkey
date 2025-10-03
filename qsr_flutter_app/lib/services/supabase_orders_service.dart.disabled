@@ -1,0 +1,486 @@
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../shared/models/supabase_models.dart';
+import '../shared/models/core_models.dart' as core;
+import '../config/supabase_config.dart';
+import '../shared/models/core_models.dart';
+
+/// Specialized service for handling orders in Supabase
+class SupabaseOrdersService {
+  static SupabaseClient get _client => SupabaseConfig.client;
+
+  // ==================== ORDERS OPERATIONS ====================
+
+  /// Get all orders for the current user
+  static Future<List<Map<String, dynamic>>> getOrders({
+    String? status,
+    String? orderType,
+    DateTime? fromDate,
+    DateTime? toDate,
+    int limit = 100,
+  }) async {
+    try {
+      final userId = SupabaseConfig.currentUserId;
+      if (userId == null) throw Exception('User not authenticated');
+
+      var query = _client
+          .from('orders')
+          .select('''
+            *,
+            customers (
+              id,
+              name,
+              phone,
+              email
+            ),
+            order_items (
+              *,
+              order_item_addons (
+                addon_name,
+                addon_price
+              )
+            )
+          ''')
+          .eq('user_id', userId);
+
+      // Add filters
+      if (status != null) {
+        query = query.eq('status', status);
+      }
+      if (orderType != null) {
+        query = query.eq('order_type', orderType);
+      }
+      if (fromDate != null) {
+        query = query.gte('created_at', fromDate.toIso8601String());
+      }
+      if (toDate != null) {
+        query = query.lte('created_at', toDate.toIso8601String());
+      }
+
+      final response = await query
+          .order('created_at', ascending: false)
+          .limit(limit);
+
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      throw Exception('Failed to get orders: $e');
+    }
+  }
+
+  /// Get a single order by ID
+  static Future<Map<String, dynamic>?> getOrder(String orderId) async {
+    try {
+      final userId = SupabaseConfig.currentUserId;
+      if (userId == null) throw Exception('User not authenticated');
+
+      final response = await _client
+          .from('orders')
+          .select('''
+            *,
+            customers (
+              id,
+              name,
+              phone,
+              email,
+              address
+            ),
+            order_items (
+              *,
+              order_item_addons (
+                addon_name,
+                addon_price
+              )
+            )
+          ''')
+          .eq('id', orderId)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      return response;
+    } catch (e) {
+      throw Exception('Failed to get order: $e');
+    }
+  }
+
+  /// Create a new order
+  static Future<SupabaseOrder> createOrder({
+    required core.OrderType orderType,
+    required List<core.OrderItem> items,
+    SupabaseCustomer? customer,
+    String? tableNumber,
+    String? notes,
+  }) async {
+    try {
+      final userId = SupabaseConfig.currentUserId;
+      if (userId == null) throw Exception('User not authenticated');
+
+      // If customer info is provided but no customerId, create customer first
+      String? finalCustomerId = customerId;
+      if (customerInfo != null && customerId == null) {
+        final customerResponse = await _client
+            .from('customers')
+            .insert({
+              'user_id': userId,
+              'name': customerInfo['name'],
+              'phone': customerInfo['phone'],
+              'email': customerInfo['email'],
+              'address': customerInfo['address'],
+            })
+            .select()
+            .single();
+        finalCustomerId = customerResponse['id'];
+      }
+
+      // Create the order
+      final orderResponse = await _client
+          .from('orders')
+          .insert({
+            'user_id': userId,
+            'customer_id': finalCustomerId,
+            'order_number': orderNumber,
+            'order_type': orderType,
+            'status': 'pending',
+            'table_number': tableNumber,
+            'section_id': sectionId,
+            'seat_number': seatNumber,
+            'subtotal': subtotal,
+            'tax_amount': taxAmount,
+            'discount_amount': discountAmount,
+            'total': total,
+            'notes': notes,
+          })
+          .select()
+          .single();
+
+      final orderId = orderResponse['id'];
+
+      // Create order items
+      final orderItemsData = <Map<String, dynamic>>[];
+      final orderItemAddonsData = <Map<String, dynamic>>[];
+
+      for (final item in items) {
+        final orderItemData = {
+          'order_id': orderId,
+          'menu_item_id': item.menuItem.id,
+          'menu_item_name': item.menuItem.name,
+          'quantity': item.quantity,
+          'unit_price': item.price,
+          'line_total': item.totalPrice,
+          'special_instructions': item.customizations?.map((c) => c.value).join(', '),
+        };
+        orderItemsData.add(orderItemData);
+
+        // Add addons if any
+        if (item.selectedAddons != null) {
+          for (final addon in item.selectedAddons!) {
+            orderItemAddonsData.add({
+              'order_item_id': null, // Will be set after order items are created
+              'addon_name': addon.name,
+              'addon_price': addon.price,
+            });
+          }
+        }
+      }
+
+      // Insert order items
+      final orderItemsResponse = await _client
+          .from('order_items')
+          .insert(orderItemsData)
+          .select();
+
+      // Insert order item addons if any
+      if (orderItemAddonsData.isNotEmpty) {
+        for (int i = 0; i < orderItemAddonsData.length; i++) {
+          orderItemAddonsData[i]['order_item_id'] = orderItemsResponse[i]['id'];
+        }
+        await _client
+            .from('order_item_addons')
+            .insert(orderItemAddonsData);
+      }
+
+      // Update customer stats if customer exists
+      if (finalCustomerId != null) {
+        await _updateCustomerStats(finalCustomerId, total);
+      }
+
+      return orderResponse;
+    } catch (e) {
+      throw Exception('Failed to create order: $e');
+    }
+  }
+
+  /// Update order status
+  static Future<Map<String, dynamic>?> updateOrderStatus(String orderId, String status) async {
+    try {
+      final userId = SupabaseConfig.currentUserId;
+      if (userId == null) throw Exception('User not authenticated');
+
+      final response = await _client
+          .from('orders')
+          .update({'status': status})
+          .eq('id', orderId)
+          .eq('user_id', userId)
+          .select()
+          .single();
+
+      return response;
+    } catch (e) {
+      throw Exception('Failed to update order status: $e');
+    }
+  }
+
+  /// Mark order as KOT printed
+  static Future<void> markKotPrinted(String orderId) async {
+    try {
+      final userId = SupabaseConfig.currentUserId;
+      if (userId == null) throw Exception('User not authenticated');
+
+      await _client
+          .from('orders')
+          .update({'kot_printed': true})
+          .eq('id', orderId)
+          .eq('user_id', userId);
+    } catch (e) {
+      throw Exception('Failed to mark KOT as printed: $e');
+    }
+  }
+
+  /// Update payment status
+  static Future<Map<String, dynamic>?> updatePaymentStatus(
+    String orderId,
+    String paymentStatus, [
+    String? paymentMethod,
+  ]) async {
+    try {
+      final userId = SupabaseConfig.currentUserId;
+      if (userId == null) throw Exception('User not authenticated');
+
+      final updates = <String, dynamic>{'payment_status': paymentStatus};
+      if (paymentMethod != null) {
+        updates['payment_method'] = paymentMethod;
+      }
+
+      final response = await _client
+          .from('orders')
+          .update(updates)
+          .eq('id', orderId)
+          .eq('user_id', userId)
+          .select()
+          .single();
+
+      return response;
+    } catch (e) {
+      throw Exception('Failed to update payment status: $e');
+    }
+  }
+
+  /// Cancel order
+  static Future<Map<String, dynamic>?> cancelOrder(String orderId, [String? reason]) async {
+    try {
+      final userId = SupabaseConfig.currentUserId;
+      if (userId == null) throw Exception('User not authenticated');
+
+      final updates = <String, dynamic>{'status': 'cancelled'};
+      if (reason != null) {
+        updates['notes'] = reason;
+      }
+
+      final response = await _client
+          .from('orders')
+          .update(updates)
+          .eq('id', orderId)
+          .eq('user_id', userId)
+          .select()
+          .single();
+
+      return response;
+    } catch (e) {
+      throw Exception('Failed to cancel order: $e');
+    }
+  }
+
+  /// Get orders by table number
+  static Future<List<Map<String, dynamic>>> getOrdersByTable(String tableNumber) async {
+    try {
+      final userId = SupabaseConfig.currentUserId;
+      if (userId == null) throw Exception('User not authenticated');
+
+      final response = await _client
+          .from('orders')
+          .select('''
+            *,
+            customers (
+              id,
+              name,
+              phone
+            ),
+            order_items (
+              *
+            )
+          ''')
+          .eq('user_id', userId)
+          .eq('table_number', tableNumber)
+          .in('status', ['pending', 'preparing', 'ready'])
+          .order('created_at', ascending: false);
+
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      throw Exception('Failed to get orders by table: $e');
+    }
+  }
+
+  /// Get daily sales summary
+  static Future<Map<String, dynamic>> getDailySales([DateTime? date]) async {
+    try {
+      final userId = SupabaseConfig.currentUserId;
+      if (userId == null) throw Exception('User not authenticated');
+
+      final targetDate = date ?? DateTime.now();
+      final startOfDay = DateTime(targetDate.year, targetDate.month, targetDate.day);
+      final endOfDay = startOfDay.add(const Duration(days: 1));
+
+      final response = await _client
+          .from('orders')
+          .select('total, order_type, status')
+          .eq('user_id', userId)
+          .gte('created_at', startOfDay.toIso8601String())
+          .lt('created_at', endOfDay.toIso8601String())
+          .neq('status', 'cancelled');
+
+      final orders = List<Map<String, dynamic>>.from(response);
+      
+      double totalRevenue = 0.0;
+      int totalOrders = orders.length;
+      int dineInOrders = 0;
+      int takeawayOrders = 0;
+      int deliveryOrders = 0;
+
+      for (final order in orders) {
+        totalRevenue += (order['total'] as num).toDouble();
+        switch (order['order_type']) {
+          case 'dine_in':
+            dineInOrders++;
+            break;
+          case 'takeaway':
+            takeawayOrders++;
+            break;
+          case 'delivery':
+            deliveryOrders++;
+            break;
+        }
+      }
+
+      return {
+        'total_revenue': totalRevenue,
+        'total_orders': totalOrders,
+        'dine_in_orders': dineInOrders,
+        'takeaway_orders': takeawayOrders,
+        'delivery_orders': deliveryOrders,
+        'avg_order_value': totalOrders > 0 ? totalRevenue / totalOrders : 0.0,
+      };
+    } catch (e) {
+      throw Exception('Failed to get daily sales: $e');
+    }
+  }
+
+  /// Generate unique order number
+  static Future<String> generateOrderNumber() async {
+    final now = DateTime.now();
+    final dateStr = '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}';
+    final timeStr = '${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}';
+    return 'ORD$dateStr$timeStr${now.millisecond.toString().padLeft(3, '0')}';
+  }
+
+  // ==================== PRIVATE HELPER METHODS ====================
+
+  /// Update customer statistics
+  static Future<void> _updateCustomerStats(String customerId, double orderTotal) async {
+    try {
+      final userId = SupabaseConfig.currentUserId;
+      if (userId == null) return;
+
+      // Get current customer stats
+      final customer = await _client
+          .from('customers')
+          .select('total_orders, total_spent')
+          .eq('id', customerId)
+          .eq('user_id', userId)
+          .single();
+
+      final currentTotalOrders = customer['total_orders'] ?? 0;
+      final currentTotalSpent = (customer['total_spent'] ?? 0.0).toDouble();
+
+      // Update customer stats
+      await _client
+          .from('customers')
+          .update({
+            'total_orders': currentTotalOrders + 1,
+            'total_spent': currentTotalSpent + orderTotal,
+            'last_order_date': DateTime.now().toIso8601String(),
+          })
+          .eq('id', customerId)
+          .eq('user_id', userId);
+    } catch (e) {
+      // Don't throw error for stats update failure
+      print('Failed to update customer stats: $e');
+    }
+  }
+
+  // ==================== REAL-TIME SUBSCRIPTIONS ====================
+
+  /// Subscribe to orders changes for real-time updates
+  static RealtimeChannel subscribeToOrders(
+    Function(List<Map<String, dynamic>>) onOrdersChanged,
+  ) {
+    final userId = SupabaseConfig.currentUserId;
+    if (userId == null) throw Exception('User not authenticated');
+
+    return _client
+        .channel('orders_realtime_$userId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'orders',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: userId,
+          ),
+          callback: (payload) {
+            // Refresh orders when any change occurs
+            getOrders().then(onOrdersChanged).catchError((error) {
+              print('Failed to refresh orders: $error');
+            });
+          },
+        )
+        .subscribe();
+  }
+
+  /// Subscribe to specific order changes
+  static RealtimeChannel subscribeToOrder(
+    String orderId,
+    Function(Map<String, dynamic>?) onOrderChanged,
+  ) {
+    final userId = SupabaseConfig.currentUserId;
+    if (userId == null) throw Exception('User not authenticated');
+
+    return _client
+        .channel('order_${orderId}_realtime')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'orders',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'id',
+            value: orderId,
+          ),
+          callback: (payload) {
+            // Refresh specific order when it changes
+            getOrder(orderId).then(onOrderChanged).catchError((error) {
+              print('Failed to refresh order: $error');
+            });
+          },
+        )
+        .subscribe();
+  }
+}

@@ -1,0 +1,268 @@
+# Supabase Integration Setup Guide
+
+This guide will help you set up Supabase integration for your QSR Flutter app to store user data in the cloud with real-time synchronization.
+
+## What is Supabase?
+
+Supabase is an open-source Firebase alternative that provides:
+- PostgreSQL database with real-time subscriptions
+- Authentication with Row Level Security (RLS)
+- Auto-generated APIs
+- Dashboard for database management
+- Real-time data synchronization
+
+## Prerequisites
+
+- Flutter development environment set up
+- Basic understanding of databases
+- A Supabase account (free tier available)
+
+## Step 1: Create a Supabase Project
+
+1. Go to [https://supabase.com](https://supabase.com)
+2. Sign up for a free account
+3. Click "New Project"
+4. Choose your organization (or create one)
+5. Fill in project details:
+   - **Name**: `qsr-flutter-app` (or your preferred name)
+   - **Database Password**: Create a strong password and save it
+   - **Region**: Choose the closest region to your users
+6. Click "Create new project"
+7. Wait for the project to be set up (usually takes 2-3 minutes)
+
+## Step 2: Get Your Project Credentials
+
+1. In your Supabase dashboard, go to **Settings** → **API**
+2. Copy the following values:
+   - **Project URL** (looks like: `https://your-project-id.supabase.co`)
+   - **Anon public** key (starts with `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9`)
+
+## Step 3: Update Flutter App Configuration
+
+1. Open your Flutter project
+2. Navigate to `lib/config/supabase_config.dart`
+3. Replace the placeholder values with your actual credentials:
+
+```dart
+class SupabaseConfig {
+  // Replace with your actual Supabase URL
+  static const String supabaseUrl = 'https://your-project-id.supabase.co';
+  
+  // Replace with your actual Supabase anon key
+  static const String supabaseAnonKey = 'your-anon-key-here';
+  
+  // ... rest of the configuration
+}
+```
+
+⚠️ **Security Note**: Never commit these credentials to public repositories. Consider using environment variables or Flutter's `--dart-define` for production apps.
+
+## Step 4: Set Up Database Schema
+
+1. In your Supabase dashboard, go to the **SQL Editor**
+2. Copy the contents of `supabase_schema.sql` file from your project root
+3. Paste it into the SQL Editor
+4. Click **Run** to execute the schema creation
+
+This will create all necessary tables:
+- `user_profiles` - Business and user information
+- `menu_items` - Restaurant menu with pricing
+- `customers` - Customer database
+- `orders` - Order management
+- `order_items` - Individual items in orders
+- And more supporting tables
+
+## Step 5: Configure Row Level Security (RLS)
+
+The schema includes RLS policies that ensure users can only access their own data. This provides secure multi-tenancy out of the box.
+
+### RLS Policies Created:
+- Users can only view/edit their own profile
+- Users can only manage their own menu items
+- Users can only see their own customers and orders
+- All data is isolated by user ID
+
+## Step 6: Test the Integration
+
+1. Run your Flutter app:
+   ```bash
+   flutter run
+   ```
+
+2. On the login screen, tap **"Supabase Cloud Demo"**
+
+3. Create a test account:
+   - Enter email and password
+   - Fill in business name
+   - Tap "Create Account"
+
+4. Test the features:
+   - Add sample menu items
+   - Create sample customers
+   - Verify real-time synchronization
+
+## Step 7: Enable Authentication Providers (Optional)
+
+To enable additional authentication methods:
+
+1. In Supabase dashboard, go to **Authentication** → **Providers**
+2. Enable desired providers:
+   - **Email**: Already enabled
+   - **Google**: Configure OAuth credentials
+   - **Apple**: Configure for iOS apps
+   - **Phone**: Enable SMS authentication
+
+### Google OAuth Setup:
+1. Go to [Google Cloud Console](https://console.cloud.google.com)
+2. Create OAuth 2.0 credentials
+3. Add authorized redirect URIs:
+   - `https://your-project-id.supabase.co/auth/v1/callback`
+4. Copy Client ID and Secret to Supabase
+
+## Features Enabled
+
+With Supabase integration, your app now has:
+
+### ✅ Cloud Data Storage
+- All orders, customers, and menu items stored in the cloud
+- Automatic backups and high availability
+- PostgreSQL with ACID compliance
+
+### ✅ Real-time Synchronization
+- Changes sync instantly across all devices
+- Live updates without app refresh
+- WebSocket-based real-time subscriptions
+
+### ✅ Multi-user Support
+- Each restaurant has isolated data
+- Secure authentication with JWT tokens
+- Row Level Security prevents data leaks
+
+### ✅ Offline Resilience
+- Local caching with automatic sync
+- Graceful handling of network issues
+- Queue failed operations for retry
+
+### ✅ Analytics Ready
+- Query historical data easily
+- Built-in PostgreSQL analytics functions
+- Export data for business intelligence
+
+## Database Tables Overview
+
+| Table | Purpose | Key Features |
+|-------|---------|--------------|
+| `user_profiles` | Business information | Tax rates, currency, subscription |
+| `menu_items` | Restaurant menu | Pricing by order type, availability |
+| `customers` | Customer database | Contact info, order history |
+| `orders` | Order management | Status tracking, payment info |
+| `order_items` | Order line items | Quantity, pricing, customizations |
+| `restaurant_tables` | Table management | Dine-in seating organization |
+| `business_analytics` | Daily summaries | Revenue, order counts, trends |
+
+## Monitoring and Maintenance
+
+### Database Monitoring
+1. **Dashboard**: Monitor active connections and performance
+2. **Logs**: View real-time database logs
+3. **Metrics**: Track API usage and response times
+
+### Backup Strategy
+- Supabase automatically backs up your database
+- Point-in-time recovery available
+- Manual backups can be scheduled
+
+### Scaling
+- Free tier: Up to 500MB database, 2GB bandwidth
+- Pro tier: Up to 8GB database, 250GB bandwidth
+- Pay-as-you-go for larger applications
+
+## Troubleshooting
+
+### Common Issues
+
+#### 1. "Failed to initialize Supabase"
+- Check that your URL and anon key are correct
+- Ensure you have internet connectivity
+- Verify the project is active in Supabase dashboard
+
+#### 2. "Authentication failed"
+- Check email format is valid
+- Ensure password meets requirements (6+ characters)
+- Verify RLS policies are set up correctly
+
+#### 3. "No data showing"
+- Check if user is authenticated
+- Verify RLS policies allow data access
+- Look for JavaScript errors in browser console
+
+#### 4. "Real-time not working"
+- Ensure WebSocket connections are allowed
+- Check network firewall settings
+- Verify subscription channels are set up
+
+### Debug Mode
+Enable debug mode in `supabase_config.dart`:
+```dart
+await Supabase.initialize(
+  url: supabaseUrl,
+  anonKey: supabaseAnonKey,
+  debug: true, // Enable for debugging
+);
+```
+
+## Security Best Practices
+
+### 1. Row Level Security (RLS)
+- Always enabled on all tables
+- Policies prevent unauthorized access
+- Test with different user accounts
+
+### 2. API Keys
+- Never expose service role key in client apps
+- Use anon key for client-side operations
+- Rotate keys periodically
+
+### 3. Data Validation
+- Validate input on both client and server
+- Use PostgreSQL constraints
+- Implement proper error handling
+
+## Next Steps
+
+1. **Custom Business Logic**: Add PostgreSQL functions for complex operations
+2. **File Storage**: Use Supabase Storage for menu item images
+3. **Push Notifications**: Integrate with FCM for order notifications
+4. **Analytics Dashboard**: Build reporting screens using the data
+5. **API Integration**: Connect with payment processors and delivery services
+
+## Support
+
+- **Supabase Documentation**: [https://supabase.com/docs](https://supabase.com/docs)
+- **Community Discord**: [https://discord.supabase.com](https://discord.supabase.com)
+- **GitHub Issues**: Report bugs and feature requests
+
+## Cost Estimation
+
+### Free Tier (Suitable for testing)
+- Up to 500MB database storage
+- Up to 2GB bandwidth per month
+- Up to 50,000 monthly active users
+- Community support
+
+### Pro Tier ($25/month - Suitable for small restaurants)
+- Up to 8GB database storage
+- Up to 250GB bandwidth per month
+- Unlimited monthly active users
+- Email support
+- Daily backups
+
+### Team/Enterprise (For restaurant chains)
+- Custom pricing based on usage
+- Dedicated support
+- SLA guarantees
+- Advanced features
+
+---
+
+**🎉 Congratulations! Your QSR Flutter app now has enterprise-grade cloud backend with real-time synchronization!**

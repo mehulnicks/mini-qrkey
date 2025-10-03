@@ -1,0 +1,573 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../providers/supabase_providers.dart';
+import '../shared/models/supabase_models.dart';
+import '../services/supabase_service.dart';
+
+/// Demo screen to showcase Supabase integration features
+class SupabaseDemoScreen extends ConsumerStatefulWidget {
+  const SupabaseDemoScreen({super.key});
+
+  @override
+  ConsumerState<SupabaseDemoScreen> createState() => _SupabaseDemoScreenState();
+}
+
+class _SupabaseDemoScreenState extends ConsumerState<SupabaseDemoScreen> {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _businessNameController = TextEditingController();
+  final _ownerNameController = TextEditingController();
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    _businessNameController.dispose();
+    _ownerNameController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentUser = ref.watch(currentUserProvider);
+    final userProfile = ref.watch(userProfileProvider);
+    final menuItems = ref.watch(menuItemsProvider);
+    final orders = ref.watch(ordersProvider);
+    final customers = ref.watch(customersProvider);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Supabase Integration Demo'),
+        backgroundColor: const Color(0xFFFF9933),
+        foregroundColor: Colors.white,
+        actions: [
+          if (currentUser.hasValue && currentUser.value != null)
+            IconButton(
+              icon: const Icon(Icons.logout),
+              onPressed: () => ref.read(authProvider.notifier).signOut(),
+            ),
+        ],
+      ),
+      body: currentUser.when(
+        data: (user) {
+          if (user == null) {
+            return _buildAuthSection();
+          } else {
+            return _buildMainContent(userProfile, menuItems, orders, customers);
+          }
+        },
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (error, stack) => Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error, size: 64, color: Colors.red),
+              const SizedBox(height: 16),
+              Text('Error: $error', textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () => ref.invalidate(currentUserProvider),
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAuthSection() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Icon(
+            Icons.cloud_sync,
+            size: 80,
+            color: Color(0xFFFF9933),
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            'Supabase Cloud Backend',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFFFF9933),
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Real-time data synchronization across all devices',
+            style: TextStyle(fontSize: 16, color: Colors.grey),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 40),
+          
+          // Email field
+          TextFormField(
+            controller: _emailController,
+            decoration: const InputDecoration(
+              labelText: 'Email',
+              prefixIcon: Icon(Icons.email),
+              border: OutlineInputBorder(),
+            ),
+            keyboardType: TextInputType.emailAddress,
+          ),
+          const SizedBox(height: 16),
+          
+          // Password field
+          TextFormField(
+            controller: _passwordController,
+            decoration: const InputDecoration(
+              labelText: 'Password',
+              prefixIcon: Icon(Icons.lock),
+              border: OutlineInputBorder(),
+            ),
+            obscureText: true,
+          ),
+          const SizedBox(height: 24),
+          
+          // Sign In Button
+          ElevatedButton(
+            onPressed: () => _signIn(),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF9933),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+            ),
+            child: const Text('Sign In'),
+          ),
+          const SizedBox(height: 12),
+          
+          // Sign Up Section
+          ExpansionTile(
+            title: const Text('New User? Sign Up'),
+            children: [
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _businessNameController,
+                decoration: const InputDecoration(
+                  labelText: 'Business Name',
+                  prefixIcon: Icon(Icons.business),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _ownerNameController,
+                decoration: const InputDecoration(
+                  labelText: 'Owner Name',
+                  prefixIcon: Icon(Icons.person),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () => _signUp(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+                child: const Text('Create Account'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 32),
+          
+          // Demo Features
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '🚀 Supabase Features:',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildFeatureItem('☁️ Cloud Database Storage'),
+                  _buildFeatureItem('🔄 Real-time Data Sync'),
+                  _buildFeatureItem('👥 Multi-user Support'),
+                  _buildFeatureItem('🔐 Secure Authentication'),
+                  _buildFeatureItem('📱 Cross-device Access'),
+                  _buildFeatureItem('🗂️ User Data Isolation'),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFeatureItem(String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Text(text, style: const TextStyle(fontSize: 16)),
+    );
+  }
+
+  Widget _buildMainContent(
+    AsyncValue<UserProfile?> userProfile,
+    AsyncValue<List<MenuItem>> menuItems,
+    AsyncValue<List<Order>> orders,
+    AsyncValue<List<Customer>> customers,
+  ) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // User Profile Section
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '👤 User Profile',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 12),
+                  userProfile.when(
+                    data: (profile) {
+                      if (profile != null) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Business: ${profile.businessName}'),
+                            if (profile.ownerName != null)
+                              Text('Owner: ${profile.ownerName}'),
+                            Text('Plan: ${profile.subscriptionPlan.toUpperCase()}'),
+                            Text('Currency: ${profile.currency}'),
+                            Text('Tax Rate: ${profile.taxRate}%'),
+                          ],
+                        );
+                      } else {
+                        return const Text('No profile data');
+                      }
+                    },
+                    loading: () => const CircularProgressIndicator(),
+                    error: (error, _) => Text('Error: $error'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Menu Items Section
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        '🍽️ Menu Items',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: () => _addSampleMenuItem(),
+                        icon: const Icon(Icons.add),
+                        label: const Text('Add Sample'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFF9933),
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  menuItems.when(
+                    data: (items) {
+                      if (items.isEmpty) {
+                        return const Text('No menu items yet. Add some to get started!');
+                      }
+                      return Column(
+                        children: items.take(3).map((item) => ListTile(
+                          title: Text(item.name),
+                          subtitle: Text('${item.currency ?? '₹'}${item.dineInPrice} • ${item.category}'),
+                          trailing: Switch(
+                            value: item.isAvailable,
+                            onChanged: (value) => _toggleMenuItemAvailability(item.id, value),
+                            activeColor: const Color(0xFFFF9933),
+                          ),
+                        )).toList(),
+                      );
+                    },
+                    loading: () => const CircularProgressIndicator(),
+                    error: (error, _) => Text('Error: $error'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Orders Section
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        '📋 Recent Orders',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: () => _createSampleOrder(),
+                        icon: const Icon(Icons.add),
+                        label: const Text('Create Sample'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  orders.when(
+                    data: (ordersList) {
+                      if (ordersList.isEmpty) {
+                        return const Text('No orders yet. Create your first order!');
+                      }
+                      return Column(
+                        children: ordersList.take(3).map((order) => ListTile(
+                          title: Text('Order #${order.orderNumber}'),
+                          subtitle: Text('${order.orderType.value.toUpperCase()} • ₹${order.total}'),
+                          trailing: Chip(
+                            label: Text(order.status.value.toUpperCase()),
+                            backgroundColor: _getStatusColor(order.status),
+                          ),
+                        )).toList(),
+                      );
+                    },
+                    loading: () => const CircularProgressIndicator(),
+                    error: (error, _) => Text('Error: $error'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Customers Section
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        '👥 Customers',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: () => _addSampleCustomer(),
+                        icon: const Icon(Icons.add),
+                        label: const Text('Add Sample'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  customers.when(
+                    data: (customersList) {
+                      if (customersList.isEmpty) {
+                        return const Text('No customers yet. Add some to track orders!');
+                      }
+                      return Column(
+                        children: customersList.take(3).map((customer) => ListTile(
+                          title: Text(customer.name),
+                          subtitle: Text('${customer.phone ?? 'No phone'} • ${customer.totalOrders} orders'),
+                          trailing: Text('₹${customer.totalSpent}'),
+                        )).toList(),
+                      );
+                    },
+                    loading: () => const CircularProgressIndicator(),
+                    error: (error, _) => Text('Error: $error'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Real-time Status
+          Card(
+            color: Colors.green.shade50,
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.sync, color: Colors.green),
+                      SizedBox(width: 8),
+                      Text(
+                        '🔄 Real-time Sync Active',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.green),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  const Text('All data changes are automatically synchronized across devices in real-time.'),
+                  const SizedBox(height: 12),
+                  ElevatedButton(
+                    onPressed: () => _refreshAllData(),
+                    child: const Text('Refresh All Data'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _getStatusColor(OrderStatus status) {
+    switch (status) {
+      case OrderStatus.pending:
+        return Colors.orange.shade200;
+      case OrderStatus.preparing:
+        return Colors.blue.shade200;
+      case OrderStatus.ready:
+        return Colors.green.shade200;
+      case OrderStatus.completed:
+        return Colors.grey.shade200;
+      case OrderStatus.cancelled:
+        return Colors.red.shade200;
+    }
+  }
+
+  Future<void> _signIn() async {
+    if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
+      _showError('Please enter email and password');
+      return;
+    }
+
+    try {
+      await ref.read(authProvider.notifier).signInWithEmail(
+        _emailController.text.trim(),
+        _passwordController.text,
+      );
+    } catch (e) {
+      _showError('Sign in failed: $e');
+    }
+  }
+
+  Future<void> _signUp() async {
+    if (_emailController.text.isEmpty || 
+        _passwordController.text.isEmpty || 
+        _businessNameController.text.isEmpty) {
+      _showError('Please fill in all required fields');
+      return;
+    }
+
+    try {
+      await ref.read(authProvider.notifier).signUpWithEmail(
+        _emailController.text.trim(),
+        _passwordController.text,
+        businessName: _businessNameController.text.trim(),
+        ownerName: _ownerNameController.text.trim().isEmpty 
+            ? null 
+            : _ownerNameController.text.trim(),
+      );
+    } catch (e) {
+      _showError('Sign up failed: $e');
+    }
+  }
+
+  Future<void> _addSampleMenuItem() async {
+    try {
+      final menuItem = MenuItem(
+        id: '',
+        name: 'Sample Item ${DateTime.now().millisecondsSinceEpoch}',
+        description: 'A delicious sample menu item',
+        category: 'Main Course',
+        dineInPrice: 299.0,
+        takeawayPrice: 279.0,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+      
+      await ref.read(menuItemsProvider.notifier).addMenuItem(menuItem);
+      _showSuccess('Sample menu item added!');
+    } catch (e) {
+      _showError('Failed to add menu item: $e');
+    }
+  }
+
+  Future<void> _addSampleCustomer() async {
+    try {
+      await ref.read(customersProvider.notifier).addCustomer(
+        name: 'John Doe ${DateTime.now().millisecondsSinceEpoch}',
+        phone: '+91 98765 43210',
+        email: 'john@example.com',
+      );
+      _showSuccess('Sample customer added!');
+    } catch (e) {
+      _showError('Failed to add customer: $e');
+    }
+  }
+
+  Future<void> _createSampleOrder() async {
+    // This would need to be implemented with the current order system
+    _showInfo('Sample order creation would be implemented here');
+  }
+
+  Future<void> _toggleMenuItemAvailability(String itemId, bool isAvailable) async {
+    try {
+      await ref.read(menuItemsProvider.notifier).toggleAvailability(itemId, isAvailable);
+    } catch (e) {
+      _showError('Failed to toggle availability: $e');
+    }
+  }
+
+  Future<void> _refreshAllData() async {
+    ref.invalidate(menuItemsProvider);
+    ref.invalidate(ordersProvider);
+    ref.invalidate(customersProvider);
+    ref.invalidate(userProfileProvider);
+    _showSuccess('Data refreshed!');
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    );
+  }
+
+  void _showSuccess(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.green),
+    );
+  }
+
+  void _showInfo(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.blue),
+    );
+  }
+}

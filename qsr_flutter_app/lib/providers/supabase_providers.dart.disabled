@@ -1,0 +1,589 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../services/supabase_service.dart';
+import '../services/supabase_orders_service.dart';
+import '../shared/models/supabase_models.dart';
+import '../config/supabase_config.dart';
+
+// ==================== AUTH PROVIDERS ====================
+
+/// Current user stream provider
+final currentUserProvider = StreamProvider<User?>((ref) {
+  return SupabaseConfig.client.auth.onAuthStateChange.map((data) => data.session?.user);
+});
+
+/// User profile provider
+final userProfileProvider = FutureProvider<UserProfile?>((ref) async {
+  final user = await ref.watch(currentUserProvider.future);
+  if (user == null) return null;
+  
+  final profileData = await SupabaseService.getUserProfile();
+  if (profileData == null) return null;
+  
+  return UserProfile.fromJson(profileData);
+});
+
+/// Authentication state notifier
+class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
+  AuthNotifier() : super(const AsyncValue.loading()) {
+    _init();
+  }
+
+  void _init() {
+    state = AsyncValue.data(SupabaseConfig.currentUser);
+    
+    // Listen to auth changes
+    SupabaseConfig.client.auth.onAuthStateChange.listen((data) {
+      state = AsyncValue.data(data.session?.user);
+    });
+  }
+
+  Future<void> signInWithEmail(String email, String password) async {
+    state = const AsyncValue.loading();
+    try {
+      final response = await SupabaseService.signInWithEmail(email, password);
+      state = AsyncValue.data(response.user);
+    } catch (e) {
+      state = AsyncValue.error(e, StackTrace.current);
+    }
+  }
+
+  Future<void> signUpWithEmail(String email, String password, {
+    required String businessName,
+    String? ownerName,
+  }) async {
+    state = const AsyncValue.loading();
+    try {
+      final response = await SupabaseService.signUpWithEmail(
+        email, 
+        password,
+        businessName: businessName,
+        ownerName: ownerName,
+      );
+      state = AsyncValue.data(response.user);
+    } catch (e) {
+      state = AsyncValue.error(e, StackTrace.current);
+    }
+  }
+
+  Future<void> signOut() async {
+    try {
+      await SupabaseService.signOut();
+      state = const AsyncValue.data(null);
+    } catch (e) {
+      state = AsyncValue.error(e, StackTrace.current);
+    }
+  }
+
+  Future<void> resetPassword(String email) async {
+    try {
+      await SupabaseService.resetPassword(email);
+    } catch (e) {
+      throw Exception('Failed to reset password: $e');
+    }
+  }
+}
+
+final authProvider = StateNotifierProvider<AuthNotifier, AsyncValue<User?>>((ref) {
+  return AuthNotifier();
+});
+
+// ==================== MENU PROVIDERS ====================
+
+/// Menu items state notifier
+class MenuItemsNotifier extends StateNotifier<AsyncValue<List<MenuItem>>> {
+  MenuItemsNotifier() : super(const AsyncValue.loading()) {
+    loadMenuItems();
+  }
+
+  RealtimeChannel? _subscription;
+
+  Future<void> loadMenuItems() async {
+    try {
+      state = const AsyncValue.loading();
+      final menuItemsData = await SupabaseService.getMenuItems();
+      final menuItems = menuItemsData.map((data) => MenuItem.fromJson(data)).toList();
+      state = AsyncValue.data(menuItems);
+      
+      // Set up real-time subscription
+      _subscription?.unsubscribe();
+      _subscription = SupabaseService.subscribeToMenuItems((data) {
+        final menuItems = data.map((item) => MenuItem.fromJson(item)).toList();
+        state = AsyncValue.data(menuItems);
+      });
+    } catch (e, stackTrace) {
+      state = AsyncValue.error(e, stackTrace);
+    }
+  }
+
+  Future<void> addMenuItem(MenuItem menuItem) async {
+    try {
+      await SupabaseService.createMenuItem(menuItem);
+      // Real-time subscription will update the state
+    } catch (e) {
+      throw Exception('Failed to add menu item: $e');
+    }
+  }
+
+  Future<void> updateMenuItem(String menuItemId, MenuItem menuItem) async {
+    try {
+      await SupabaseService.updateMenuItem(menuItemId, menuItem);
+      // Real-time subscription will update the state
+    } catch (e) {
+      throw Exception('Failed to update menu item: $e');
+    }
+  }
+
+  Future<void> deleteMenuItem(String menuItemId) async {
+    try {
+      await SupabaseService.deleteMenuItem(menuItemId);
+      // Real-time subscription will update the state
+    } catch (e) {
+      throw Exception('Failed to delete menu item: $e');
+    }
+  }
+
+  Future<void> toggleAvailability(String menuItemId, bool isAvailable) async {
+    try {
+      await SupabaseService.toggleMenuItemAvailability(menuItemId, isAvailable);
+      // Real-time subscription will update the state
+    } catch (e) {
+      throw Exception('Failed to toggle menu item availability: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _subscription?.unsubscribe();
+    super.dispose();
+  }
+}
+
+final menuItemsProvider = StateNotifierProvider<MenuItemsNotifier, AsyncValue<List<MenuItem>>>((ref) {
+  return MenuItemsNotifier();
+});
+
+/// Get menu items by category
+final menuItemsByCategoryProvider = Provider.family<List<MenuItem>, String>((ref, category) {
+  final menuItems = ref.watch(menuItemsProvider);
+  return menuItems.when(
+    data: (items) => items.where((item) => item.category == category).toList(),
+    loading: () => [],
+    error: (_, __) => [],
+  );
+});
+
+/// Get available menu categories
+final menuCategoriesProvider = Provider<List<String>>((ref) {
+  final menuItems = ref.watch(menuItemsProvider);
+  return menuItems.when(
+    data: (items) {
+      final categories = items.map((item) => item.category).toSet().toList();
+      categories.sort();
+      return categories;
+    },
+    loading: () => [],
+    error: (_, __) => [],
+  );
+});
+
+// ==================== CUSTOMERS PROVIDERS ====================
+
+/// Customers state notifier
+class CustomersNotifier extends StateNotifier<AsyncValue<List<Customer>>> {
+  CustomersNotifier() : super(const AsyncValue.loading()) {
+    loadCustomers();
+  }
+
+  Future<void> loadCustomers() async {
+    try {
+      state = const AsyncValue.loading();
+      final customersData = await SupabaseService.getCustomers();
+      final customers = customersData.map((data) => Customer.fromJson(data)).toList();
+      state = AsyncValue.data(customers);
+    } catch (e, stackTrace) {
+      state = AsyncValue.error(e, stackTrace);
+    }
+  }
+
+  Future<Customer> addCustomer({
+    required String name,
+    String? phone,
+    String? email,
+    String? address,
+    String? notes,
+  }) async {
+    try {
+      final customerData = await SupabaseService.createCustomer(
+        name: name,
+        phone: phone,
+        email: email,
+        address: address,
+        notes: notes,
+      );
+      
+      if (customerData != null) {
+        final customer = Customer.fromJson(customerData);
+        // Add to current state
+        state.whenData((customers) {
+          state = AsyncValue.data([...customers, customer]);
+        });
+        return customer;
+      } else {
+        throw Exception('Failed to create customer');
+      }
+    } catch (e) {
+      throw Exception('Failed to add customer: $e');
+    }
+  }
+
+  Future<void> updateCustomer(String customerId, Map<String, dynamic> updates) async {
+    try {
+      final customerData = await SupabaseService.updateCustomer(customerId, updates);
+      if (customerData != null) {
+        final updatedCustomer = Customer.fromJson(customerData);
+        // Update in current state
+        state.whenData((customers) {
+          final updatedList = customers.map((customer) {
+            return customer.id == customerId ? updatedCustomer : customer;
+          }).toList();
+          state = AsyncValue.data(updatedList);
+        });
+      }
+    } catch (e) {
+      throw Exception('Failed to update customer: $e');
+    }
+  }
+
+  Future<List<Customer>> searchCustomers(String query) async {
+    try {
+      final customersData = await SupabaseService.searchCustomers(query);
+      return customersData.map((data) => Customer.fromJson(data)).toList();
+    } catch (e) {
+      throw Exception('Failed to search customers: $e');
+    }
+  }
+}
+
+final customersProvider = StateNotifierProvider<CustomersNotifier, AsyncValue<List<Customer>>>((ref) {
+  return CustomersNotifier();
+});
+
+// ==================== ORDERS PROVIDERS ====================
+
+/// Orders state notifier
+class OrdersNotifier extends StateNotifier<AsyncValue<List<Order>>> {
+  OrdersNotifier() : super(const AsyncValue.loading()) {
+    loadOrders();
+  }
+
+  RealtimeChannel? _subscription;
+
+  Future<void> loadOrders({
+    String? status,
+    String? orderType,
+    DateTime? fromDate,
+    DateTime? toDate,
+    int limit = 100,
+  }) async {
+    try {
+      state = const AsyncValue.loading();
+      final ordersData = await SupabaseOrdersService.getOrders(
+        status: status,
+        orderType: orderType,
+        fromDate: fromDate,
+        toDate: toDate,
+        limit: limit,
+      );
+      final orders = ordersData.map((data) => Order.fromJson(data)).toList();
+      state = AsyncValue.data(orders);
+      
+      // Set up real-time subscription
+      _subscription?.unsubscribe();
+      _subscription = SupabaseOrdersService.subscribeToOrders((data) {
+        final orders = data.map((item) => Order.fromJson(item)).toList();
+        state = AsyncValue.data(orders);
+      });
+    } catch (e, stackTrace) {
+      state = AsyncValue.error(e, stackTrace);
+    }
+  }
+
+  Future<Order> createOrder({
+    required OrderType orderType,
+    required List<OrderItem> items,
+    required double subtotal,
+    required double taxAmount,
+    required double total,
+    String? customerId,
+    String? tableNumber,
+    String? sectionId,
+    int? seatNumber,
+    double discountAmount = 0.0,
+    String? notes,
+    Map<String, dynamic>? customerInfo,
+  }) async {
+    try {
+      final orderNumber = await SupabaseOrdersService.generateOrderNumber();
+      
+      final orderData = await SupabaseOrdersService.createOrder(
+        orderNumber: orderNumber,
+        orderType: orderType.value,
+        items: items,
+        subtotal: subtotal,
+        taxAmount: taxAmount,
+        total: total,
+        customerId: customerId,
+        tableNumber: tableNumber,
+        sectionId: sectionId,
+        seatNumber: seatNumber,
+        discountAmount: discountAmount,
+        notes: notes,
+        customerInfo: customerInfo,
+      );
+
+      if (orderData != null) {
+        final order = Order.fromJson(orderData);
+        // Real-time subscription will update the state
+        return order;
+      } else {
+        throw Exception('Failed to create order');
+      }
+    } catch (e) {
+      throw Exception('Failed to create order: $e');
+    }
+  }
+
+  Future<void> updateOrderStatus(String orderId, OrderStatus status) async {
+    try {
+      await SupabaseOrdersService.updateOrderStatus(orderId, status.value);
+      // Real-time subscription will update the state
+    } catch (e) {
+      throw Exception('Failed to update order status: $e');
+    }
+  }
+
+  Future<void> markKotPrinted(String orderId) async {
+    try {
+      await SupabaseOrdersService.markKotPrinted(orderId);
+      // Real-time subscription will update the state
+    } catch (e) {
+      throw Exception('Failed to mark KOT as printed: $e');
+    }
+  }
+
+  Future<void> updatePaymentStatus(String orderId, PaymentStatus paymentStatus, [String? paymentMethod]) async {
+    try {
+      await SupabaseOrdersService.updatePaymentStatus(orderId, paymentStatus.value, paymentMethod);
+      // Real-time subscription will update the state
+    } catch (e) {
+      throw Exception('Failed to update payment status: $e');
+    }
+  }
+
+  Future<void> cancelOrder(String orderId, [String? reason]) async {
+    try {
+      await SupabaseOrdersService.cancelOrder(orderId, reason);
+      // Real-time subscription will update the state
+    } catch (e) {
+      throw Exception('Failed to cancel order: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _subscription?.unsubscribe();
+    super.dispose();
+  }
+}
+
+final ordersProvider = StateNotifierProvider<OrdersNotifier, AsyncValue<List<Order>>>((ref) {
+  return OrdersNotifier();
+});
+
+/// Get orders by status
+final ordersByStatusProvider = Provider.family<List<Order>, OrderStatus>((ref, status) {
+  final orders = ref.watch(ordersProvider);
+  return orders.when(
+    data: (ordersList) => ordersList.where((order) => order.status == status).toList(),
+    loading: () => [],
+    error: (_, __) => [],
+  );
+});
+
+/// Get today's orders
+final todaysOrdersProvider = Provider<List<Order>>((ref) {
+  final orders = ref.watch(ordersProvider);
+  final today = DateTime.now();
+  final startOfDay = DateTime(today.year, today.month, today.day);
+  final endOfDay = startOfDay.add(const Duration(days: 1));
+  
+  return orders.when(
+    data: (ordersList) => ordersList.where((order) {
+      return order.createdAt.isAfter(startOfDay) && order.createdAt.isBefore(endOfDay);
+    }).toList(),
+    loading: () => [],
+    error: (_, __) => [],
+  );
+});
+
+/// Daily sales provider
+final dailySalesProvider = FutureProvider.family<Map<String, dynamic>, DateTime?>((ref, date) async {
+  return await SupabaseOrdersService.getDailySales(date);
+});
+
+// ==================== CURRENT ORDER PROVIDERS ====================
+
+/// Current order state for the POS interface
+class CurrentOrderState {
+  final List<OrderItem> items;
+  final OrderType orderType;
+  final String? tableNumber;
+  final String? notes;
+  final Customer? customer;
+  final double subtotal;
+  final double taxAmount;
+  final double discountAmount;
+  final double total;
+
+  CurrentOrderState({
+    this.items = const [],
+    this.orderType = OrderType.dineIn,
+    this.tableNumber,
+    this.notes,
+    this.customer,
+    this.subtotal = 0.0,
+    this.taxAmount = 0.0,
+    this.discountAmount = 0.0,
+    this.total = 0.0,
+  });
+
+  CurrentOrderState copyWith({
+    List<OrderItem>? items,
+    OrderType? orderType,
+    String? tableNumber,
+    String? notes,
+    Customer? customer,
+    double? subtotal,
+    double? taxAmount,
+    double? discountAmount,
+    double? total,
+  }) {
+    return CurrentOrderState(
+      items: items ?? this.items,
+      orderType: orderType ?? this.orderType,
+      tableNumber: tableNumber ?? this.tableNumber,
+      notes: notes ?? this.notes,
+      customer: customer ?? this.customer,
+      subtotal: subtotal ?? this.subtotal,
+      taxAmount: taxAmount ?? this.taxAmount,
+      discountAmount: discountAmount ?? this.discountAmount,
+      total: total ?? this.total,
+    );
+  }
+}
+
+/// Current order notifier
+class CurrentOrderNotifier extends StateNotifier<CurrentOrderState> {
+  CurrentOrderNotifier() : super(CurrentOrderState());
+
+  void addItem(MenuItem menuItem, int quantity, [List<Addon>? selectedAddons]) {
+    final orderItem = OrderItem(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      menuItem: menuItem,
+      quantity: quantity,
+      price: menuItem.getPriceForOrderType(state.orderType),
+      totalPrice: menuItem.getPriceForOrderType(state.orderType) * quantity,
+      selectedAddons: selectedAddons,
+    );
+    
+    final updatedItems = [...state.items, orderItem];
+    _updateOrderCalculations(updatedItems);
+  }
+
+  void updateItemQuantity(String itemId, int quantity) {
+    final updatedItems = state.items.map((item) {
+      if (item.id == itemId) {
+        final newTotalPrice = item.price * quantity;
+        return item.copyWith(quantity: quantity, totalPrice: newTotalPrice);
+      }
+      return item;
+    }).toList();
+    
+    _updateOrderCalculations(updatedItems);
+  }
+
+  void removeItem(String itemId) {
+    final updatedItems = state.items.where((item) => item.id != itemId).toList();
+    _updateOrderCalculations(updatedItems);
+  }
+
+  void setOrderType(OrderType orderType) {
+    // Recalculate prices for new order type
+    final updatedItems = state.items.map((item) {
+      final newPrice = item.menuItem.getPriceForOrderType(orderType);
+      final newTotalPrice = newPrice * item.quantity;
+      return item.copyWith(price: newPrice, totalPrice: newTotalPrice);
+    }).toList();
+    
+    state = state.copyWith(orderType: orderType);
+    _updateOrderCalculations(updatedItems);
+  }
+
+  void setTableNumber(String? tableNumber) {
+    state = state.copyWith(tableNumber: tableNumber);
+  }
+
+  void setCustomer(Customer? customer) {
+    state = state.copyWith(customer: customer);
+  }
+
+  void setNotes(String? notes) {
+    state = state.copyWith(notes: notes);
+  }
+
+  void clearOrder() {
+    state = CurrentOrderState();
+  }
+
+  void _updateOrderCalculations(List<OrderItem> items) {
+    final subtotal = items.fold(0.0, (sum, item) => sum + item.totalPrice);
+    // You can get tax rate from user profile
+    const taxRate = 0.18; // 18% GST - should come from user profile
+    final taxAmount = subtotal * taxRate;
+    final total = subtotal + taxAmount - state.discountAmount;
+    
+    state = state.copyWith(
+      items: items,
+      subtotal: subtotal,
+      taxAmount: taxAmount,
+      total: total,
+    );
+  }
+}
+
+final currentOrderProvider = StateNotifierProvider<CurrentOrderNotifier, CurrentOrderState>((ref) {
+  return CurrentOrderNotifier();
+});
+
+// ==================== HELPER PROVIDERS ====================
+
+/// Check if user is authenticated
+final isAuthenticatedProvider = Provider<bool>((ref) {
+  final user = ref.watch(currentUserProvider);
+  return user.when(
+    data: (user) => user != null,
+    loading: () => false,
+    error: (_, __) => false,
+  );
+});
+
+/// Current user ID provider
+final currentUserIdProvider = Provider<String?>((ref) {
+  final user = ref.watch(currentUserProvider);
+  return user.when(
+    data: (user) => user?.id,
+    loading: () => null,
+    error: (_, __) => null,
+  );
+});
