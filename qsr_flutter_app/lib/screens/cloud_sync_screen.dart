@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/theme/qrkey_theme.dart';
 import '../services/supabase_service.dart';
 
 class CloudSyncScreen extends ConsumerStatefulWidget {
@@ -43,21 +44,48 @@ class _CloudSyncScreenState extends ConsumerState<CloudSyncScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Cloud Sync'),
-        backgroundColor: Colors.green.shade600,
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            onPressed: _performManualSync,
-            icon: const Icon(Icons.sync),
-            tooltip: 'Manual Sync',
+      backgroundColor: QRKeyTheme.greyBackground,
+      body: _isLoading
+          ? _buildLoadingState()
+          : _buildContent(),
+    );
+  }
+
+  Widget _buildLoadingState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.green.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation(Colors.green),
+              strokeWidth: 3,
+            ),
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            'Connecting to Cloud...',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: Colors.green,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Checking sync status',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey.shade600,
+            ),
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _buildContent(),
     );
   }
 
@@ -81,53 +109,115 @@ class _CloudSyncScreenState extends ConsumerState<CloudSyncScreen> {
 
   Widget _buildSyncStatusCard() {
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Sync Status',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                _buildStatusIndicator(),
-                const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+      elevation: 6,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.green.withOpacity(0.1),
+              Colors.green.withOpacity(0.05),
+            ],
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.cloud_sync,
+                      color: Colors.green,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Text(
+                    'Sync Status',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.green.withOpacity(0.3)),
+                ),
+                child: Row(
                   children: [
-                    Text(
-                      _syncStatus,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                    _buildStatusIndicator(),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _syncStatus,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.green,
+                            ),
+                          ),
+                          if (_lastSyncTime != null)
+                            Text(
+                              'Last sync: ${_formatSyncTime(_lastSyncTime!)}',
+                              style: TextStyle(
+                                color: Colors.grey.shade600,
+                                fontSize: 14,
+                              ),
+                            ),
+                        ],
                       ),
                     ),
-                    if (_lastSyncTime != null)
-                      Text(
-                        'Last sync: ${_formatSyncTime(_lastSyncTime!)}',
-                        style: TextStyle(
-                          color: Colors.grey.shade600,
-                          fontSize: 14,
+                    Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Colors.green.shade600, Colors.green.shade500],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.green.withOpacity(0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: ElevatedButton.icon(
+                        onPressed: _performManualSync,
+                        icon: const Icon(Icons.sync, size: 18),
+                        label: const Text('Sync Now'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.transparent,
+                          foregroundColor: Colors.white,
+                          shadowColor: Colors.transparent,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                         ),
                       ),
+                    ),
                   ],
                 ),
-                const Spacer(),
-                ElevatedButton.icon(
-                  onPressed: _performManualSync,
-                  icon: const Icon(Icons.sync, size: 18),
-                  label: const Text('Sync Now'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green.shade600,
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-              ],
-            ),
-          ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -135,26 +225,35 @@ class _CloudSyncScreenState extends ConsumerState<CloudSyncScreen> {
 
   Widget _buildStatusIndicator() {
     Color indicatorColor;
+    IconData statusIcon;
     switch (_syncStatus) {
       case 'Connected':
         indicatorColor = Colors.green;
+        statusIcon = Icons.check_circle;
         break;
       case 'Disconnected':
         indicatorColor = Colors.orange;
+        statusIcon = Icons.warning;
         break;
       case 'Error':
         indicatorColor = Colors.red;
+        statusIcon = Icons.error;
         break;
       default:
         indicatorColor = Colors.grey;
+        statusIcon = Icons.help;
     }
 
     return Container(
-      width: 12,
-      height: 12,
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
+        color: indicatorColor.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Icon(
+        statusIcon,
         color: indicatorColor,
-        shape: BoxShape.circle,
+        size: 24,
       ),
     );
   }

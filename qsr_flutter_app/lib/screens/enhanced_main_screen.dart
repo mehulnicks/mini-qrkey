@@ -187,7 +187,26 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                     ],
                   ),
                 ),
-                _buildPlanBadge(),
+                Row(
+                  children: [
+                    _buildPlanBadge(),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: Icon(
+                        Icons.logout,
+                        color: Colors.grey.shade600,
+                        size: 20,
+                      ),
+                      onPressed: _showLogoutDialog,
+                      tooltip: 'Logout',
+                      padding: const EdgeInsets.all(8),
+                      constraints: const BoxConstraints(
+                        minWidth: 32,
+                        minHeight: 32,
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ],
@@ -740,6 +759,16 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
             trailing: const Icon(Icons.arrow_forward_ios, size: 16),
             onTap: () => _showComingSoon('Help & Support'),
           ),
+          const Divider(height: 1),
+          ListTile(
+            leading: Icon(Icons.logout, color: Colors.red.shade600),
+            title: Text(
+              'Logout',
+              style: TextStyle(color: Colors.red.shade600),
+            ),
+            trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+            onTap: () => _showLogoutDialog(),
+          ),
         ],
       ),
     );
@@ -834,6 +863,89 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('$feature feature coming soon!')),
     );
+  }
+
+  void _showLogoutDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Logout'),
+          content: const Text('Are you sure you want to logout from QRKEY?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                await _performLogout();
+              },
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.red,
+              ),
+              child: const Text('Logout'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _performLogout() async {
+    try {
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
+              Text('Logging out...'),
+            ],
+          ),
+        ),
+      );
+
+      // Sign out from Firebase
+      await FirebaseAuth.instance.signOut();
+      
+      // Clear any cached subscription data
+      await SubscriptionService.clearCache();
+      
+      // Close loading dialog
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+      
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Successfully logged out'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      // Close loading dialog if it's open
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+      
+      // Show error message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Logout failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   String _formatDate(DateTime date) {

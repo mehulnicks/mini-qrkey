@@ -344,4 +344,16 @@ class SubscriptionService {
   static Future<void> setMenuItemCountForTesting(int count) async {
     await updateMenuItemCount(count);
   }
+  
+  // Clear all cached subscription data (for logout)
+  static Future<void> clearCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_subscriptionKey);
+      await prefs.remove(_menuItemCountKey);
+      _currentSubscription = null;
+    } catch (e) {
+      print('Error clearing subscription cache: $e');
+    }
+  }
 }
