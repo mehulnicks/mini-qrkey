@@ -55,6 +55,9 @@ class _SubscriptionManagementScreenState extends ConsumerState<SubscriptionManag
         children: [
           _buildCurrentPlanCard(),
           const SizedBox(height: 20),
+          if (_currentSubscription!.plan != SubscriptionPlan.free)
+            _buildPlanManagementCard(),
+          const SizedBox(height: 20),
           _buildUsageCard(),
           const SizedBox(height: 20),
           _buildUpgradeOptionsCard(),
@@ -126,6 +129,103 @@ class _SubscriptionManagementScreenState extends ConsumerState<SubscriptionManag
     );
   }
 
+  Widget _buildPlanManagementCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Plan Management',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.cancel, color: Colors.red),
+              title: const Text('Cancel Subscription'),
+              subtitle: const Text('Downgrade to free plan'),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+              onTap: _showCancelDialog,
+            ),
+            const Divider(),
+            ListTile(
+              leading: Icon(Icons.receipt, color: QRKeyTheme.primarySaffron),
+              title: const Text('Billing Information'),
+              subtitle: Text(
+                'Billing cycle: ${_currentSubscription!.billingCycle.displayName}',
+              ),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+              onTap: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Billing management coming soon!')),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showCancelDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cancel Subscription'),
+        content: const Text(
+          'Are you sure you want to cancel your subscription? You will lose access to premium features and be downgraded to the free plan.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Keep Subscription'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _processCancellation();
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Cancel Subscription'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _processCancellation() async {
+    try {
+      final success = await SubscriptionService.cancelSubscription();
+      
+      if (success) {
+        // Reload subscription data
+        await _loadSubscription();
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Subscription cancelled successfully. You are now on the free plan.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cannot cancel subscription. You may have too many menu items for the free plan.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error cancelling subscription: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   Widget _buildUsageCard() {
     return Card(
       child: Padding(
@@ -138,22 +238,39 @@ class _SubscriptionManagementScreenState extends ConsumerState<SubscriptionManag
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 16),
-            _buildUsageItem(
-              'Menu Items',
-              '8',
-              _currentSubscription!.limits.hasUnlimitedMenuItems 
-                  ? 'Unlimited' 
-                  : _currentSubscription!.limits.maxMenuItems.toString(),
-              0.8,
-            ),
-            const SizedBox(height: 12),
-            _buildUsageItem(
-              'Order History',
-              '150 orders',
-              _currentSubscription!.limits.hasUnlimitedOrderHistory 
-                  ? 'Unlimited' 
-                  : '${_currentSubscription!.limits.maxOrderHistoryDays} days',
-              0.3,
+            FutureBuilder<Map<String, dynamic>>(
+              future: SubscriptionService.getUsageStatistics(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                
+                final usage = snapshot.data!;
+                final currentItems = usage['currentMenuItems'] as int;
+                final maxItems = usage['maxMenuItems'] as int;
+                final usagePercentage = usage['menuItemUsagePercentage'] as double;
+                final hasUnlimited = usage['hasUnlimitedMenuItems'] as bool;
+                
+                return Column(
+                  children: [
+                    _buildUsageItem(
+                      'Menu Items',
+                      currentItems.toString(),
+                      hasUnlimited ? 'Unlimited' : maxItems.toString(),
+                      hasUnlimited ? 0.0 : usagePercentage / 100,
+                    ),
+                    const SizedBox(height: 12),
+                    _buildUsageItem(
+                      'Order History',
+                      '150 orders',
+                      _currentSubscription!.limits.hasUnlimitedOrderHistory 
+                          ? 'Unlimited' 
+                          : '${_currentSubscription!.limits.maxOrderHistoryDays} days',
+                      0.3,
+                    ),
+                  ],
+                );
+              },
             ),
           ],
         ),
@@ -268,14 +385,50 @@ class _SubscriptionManagementScreenState extends ConsumerState<SubscriptionManag
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Billing History',
-              style: Theme.of(context).textTheme.titleLarge,
+            Row(
+              children: [
+                Text(
+                  'Billing History',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const Spacer(),
+                TextButton(
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Detailed billing history coming soon!')),
+                    );
+                  },
+                  child: const Text('View All'),
+                ),
+              ],
             ),
             const SizedBox(height: 16),
-            _buildBillingItem('Oct 2025', 'Premium Plan', '₹499'),
-            _buildBillingItem('Sep 2025', 'Premium Plan', '₹499'),
-            _buildBillingItem('Aug 2025', 'Free Plan', '₹0'),
+            if (_currentSubscription!.plan == SubscriptionPlan.free)
+              Center(
+                child: Column(
+                  children: [
+                    Icon(Icons.receipt_outlined, size: 48, color: Colors.grey.shade400),
+                    const SizedBox(height: 8),
+                    Text(
+                      'No billing history',
+                      style: TextStyle(color: Colors.grey.shade600),
+                    ),
+                    const Text(
+                      'You are on the free plan',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              )
+            else ...[
+              _buildBillingItem(
+                _formatDate(_currentSubscription!.startDate),
+                '${_currentSubscription!.plan.displayName} Plan',
+                _currentSubscription!.pricing.formattedMonthlyPrice.split('/')[0],
+              ),
+              _buildBillingItem('Sep 2025', 'Premium Plan', '₹499'),
+              _buildBillingItem('Aug 2025', 'Free Plan', '₹0'),
+            ],
           ],
         ),
       ),
@@ -374,14 +527,45 @@ class _SubscriptionManagementScreenState extends ConsumerState<SubscriptionManag
     );
   }
 
-  void _processUpgrade(SubscriptionPlan plan) {
-    // Simulate upgrade process
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Upgrade to ${plan.displayName} initiated! Check your email for payment instructions.'),
-        backgroundColor: Colors.green,
-      ),
-    );
+  void _processUpgrade(SubscriptionPlan plan) async {
+    try {
+      bool success = false;
+      if (plan == SubscriptionPlan.premium) {
+        success = await SubscriptionService.upgradeToPremium(
+          billingCycle: SubscriptionBillingCycle.monthly,
+        );
+      } else if (plan == SubscriptionPlan.enterprise) {
+        success = await SubscriptionService.upgradeToEnterprise(
+          billingCycle: SubscriptionBillingCycle.monthly,
+        );
+      }
+
+      if (success) {
+        // Reload subscription data
+        await _loadSubscription();
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Successfully upgraded to ${plan.displayName}!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Upgrade failed. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   String _formatDate(DateTime date) {

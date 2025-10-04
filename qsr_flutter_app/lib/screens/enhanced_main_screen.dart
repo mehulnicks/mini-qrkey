@@ -10,7 +10,14 @@ import 'freemium_demo_screen.dart';
 import 'supabase_demo_screen.dart';
 import 'subscription_management_screen.dart';
 import 'cloud_features_screen.dart';
+import 'sales_reports_screen.dart';
+import 'business_insights_screen.dart';
+import 'live_dashboard_screen.dart';
 import '../widgets/qrkey_logo.dart';
+import '../widgets/subscription_dashboard_widget.dart';
+import '../widgets/subscription_metrics_widget.dart';
+import '../providers/subscription_provider.dart';
+import 'debug_subscription_screen.dart';
 
 /// Enhanced main screen that integrates freemium and Supabase features
 /// without disturbing the existing QSR system UI
@@ -108,18 +115,22 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
   Widget _buildDashboardScreen(User? currentUser) {
     return SafeArea(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildHeader(currentUser),
-            const SizedBox(height: 20),
-            _buildSubscriptionBanner(),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
+            // Quick metrics overview
+            const QuickMetricsWidget(),
+            const SizedBox(height: 12),
             _buildQuickStats(),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
+            // Subscription Metrics Widget (compact version for overview)
+            const SubscriptionMetricsWidget(compact: true),
+            const SizedBox(height: 12),
             _buildQuickActions(),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
             _buildRecentActivity(),
           ],
         ),
@@ -130,7 +141,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
   Widget _buildQuickStats() {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -138,7 +149,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               'Quick Stats',
               style: Theme.of(context).textTheme.titleLarge,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
@@ -149,7 +160,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                     Colors.blue,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
                 Expanded(
                   child: _buildStatCard(
                     'Revenue',
@@ -160,7 +171,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             Row(
               children: [
                 Expanded(
@@ -171,7 +182,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                     Colors.orange,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
                 Expanded(
                   child: _buildStatCard(
                     'Menu Items',
@@ -190,7 +201,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
 
   Widget _buildStatCard(String title, String value, IconData icon, Color color) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(8),
@@ -201,13 +212,13 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
         children: [
           Row(
             children: [
-              Icon(icon, color: color, size: 20),
-              const SizedBox(width: 8),
+              Icon(icon, color: color, size: 18),
+              const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   title,
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: 11,
                     color: color,
                     fontWeight: FontWeight.w500,
                   ),
@@ -215,11 +226,11 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
             value,
             style: TextStyle(
-              fontSize: 20,
+              fontSize: 18,
               fontWeight: FontWeight.bold,
               color: color,
             ),
@@ -232,14 +243,14 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
   Widget _buildHeader(User? currentUser) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
                 CircleAvatar(
-                  radius: 30,
+                  radius: 24,
                   backgroundColor: QRKeyTheme.primarySaffron.withOpacity(0.1), // Blue background
                   child: Text(
                     (currentUser?.displayName?.isNotEmpty == true) 
@@ -248,20 +259,20 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                             ? currentUser!.email!.substring(0, 1).toUpperCase() 
                             : 'U',
                     style: TextStyle(
-                      fontSize: 24,
+                      fontSize: 20,
                       fontWeight: FontWeight.bold,
                       color: QRKeyTheme.primarySaffron, // Blue color
                     ),
                   ),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         'Welcome back!',
-                        style: Theme.of(context).textTheme.headlineSmall,
+                        style: Theme.of(context).textTheme.titleLarge,
                       ),
                       Text(
                         currentUser?.displayName ?? 
@@ -269,7 +280,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                         'Restaurant Manager',
                         style: TextStyle(
                           color: Colors.grey.shade600,
-                          fontSize: 16,
+                          fontSize: 14,
                         ),
                       ),
                     ],
@@ -277,8 +288,30 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                 ),
                 Row(
                   children: [
-                    _buildPlanBadge(),
+                    // Compact Subscription Widget
+                    const CompactSubscriptionWidget(),
                     const SizedBox(width: 8),
+                    IconButton(
+                      icon: Icon(
+                        Icons.bug_report,
+                        color: QRKeyTheme.primarySaffron,
+                        size: 18,
+                      ),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const DebugSubscriptionScreen(),
+                          ),
+                        );
+                      },
+                      tooltip: 'Debug Subscription',
+                      padding: const EdgeInsets.all(8),
+                      constraints: const BoxConstraints(
+                        minWidth: 32,
+                        minHeight: 32,
+                      ),
+                    ),
                     IconButton(
                       icon: Icon(
                         Icons.logout,
@@ -804,7 +837,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
   Widget _buildSettingsScreen(User? currentUser) {
     return SafeArea(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -812,14 +845,14 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               'Settings',
               style: Theme.of(context).textTheme.headlineSmall,
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
             
             // Profile Section
             _buildSettingsSection(
               title: 'Profile',
               children: [
                 _buildSettingsHeader(currentUser),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 _buildSettingsTile(
                   icon: Icons.person_outline,
                   title: 'Edit Profile',
@@ -829,7 +862,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               ],
             ),
             
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
             
             // Subscription Section
             _buildSettingsSection(
@@ -851,7 +884,37 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               ],
             ),
             
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
+            
+            // Analytics & Reports Section
+            _buildSettingsSection(
+              title: 'Analytics & Reports',
+              children: [
+                _buildSettingsTile(
+                  icon: Icons.bar_chart,
+                  title: 'Sales Reports',
+                  subtitle: 'Detailed sales analysis and reports',
+                  onTap: () => _navigateToSalesReports(),
+                  premium: _subscription?.plan == SubscriptionPlan.free,
+                ),
+                _buildSettingsTile(
+                  icon: Icons.insights,
+                  title: 'Business Insights',
+                  subtitle: 'AI-powered business intelligence',
+                  onTap: () => _navigateToBusinessInsights(),
+                  premium: _subscription?.plan == SubscriptionPlan.free,
+                ),
+                _buildSettingsTile(
+                  icon: Icons.dashboard,
+                  title: 'Live Dashboard',
+                  subtitle: 'Real-time business monitoring',
+                  onTap: () => _navigateToLiveDashboard(),
+                  premium: _subscription?.plan == SubscriptionPlan.free,
+                ),
+              ],
+            ),
+            
+            const SizedBox(height: 16),
             
             // App Settings Section
             _buildSettingsSection(
@@ -879,7 +942,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               ],
             ),
             
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
             
             // Support Section
             _buildSettingsSection(
@@ -906,7 +969,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               ],
             ),
             
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
             
             // Logout Section
             _buildSettingsSection(
@@ -922,7 +985,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               ],
             ),
             
-            const SizedBox(height: 40),
+            const SizedBox(height: 24),
           ],
         ),
       ),
@@ -1003,7 +1066,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const Spacer(),
-                _buildPlanBadge(),
+                const CompactSubscriptionWidget(),
               ],
             ),
             const SizedBox(height: 16),
@@ -1152,7 +1215,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
             ],
           ),
         ),
-        _buildPlanBadge(),
+        const CompactSubscriptionWidget(),
       ],
     );
   }
@@ -1348,6 +1411,39 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
       context,
       MaterialPageRoute(builder: (_) => const SubscriptionManagementScreen()),
     );
+  }
+
+  void _navigateToSalesReports() {
+    if (_subscription?.plan == SubscriptionPlan.free) {
+      _showPremiumRequired();
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const SalesReportsScreen()),
+      );
+    }
+  }
+
+  void _navigateToBusinessInsights() {
+    if (_subscription?.plan == SubscriptionPlan.free) {
+      _showPremiumRequired();
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const BusinessInsightsScreen()),
+      );
+    }
+  }
+
+  void _navigateToLiveDashboard() {
+    if (_subscription?.plan == SubscriptionPlan.free) {
+      _showPremiumRequired();
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const LiveDashboardScreen()),
+      );
+    }
   }
 
   void _openFeature(FeatureInfo feature) {

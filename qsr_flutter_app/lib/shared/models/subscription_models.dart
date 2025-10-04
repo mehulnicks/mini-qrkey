@@ -136,7 +136,10 @@ class SubscriptionLimits {
     apiAccessEnabled: true,
   );
 
+  // Helper method to check if unlimited menu items
   bool get hasUnlimitedMenuItems => maxMenuItems == -1;
+  
+  // Helper method to check if unlimited order history
   bool get hasUnlimitedOrderHistory => maxOrderHistoryDays == -1;
 
   Map<String, dynamic> toJson() => {
@@ -193,9 +196,12 @@ class SubscriptionPricing {
     yearlyDiscountPercentage: 17.0,
   );
 
-  double get monthlySavings => monthlyPrice * 12 - yearlyPrice;
-  String get formattedMonthlyPrice => '$currency${monthlyPrice.toStringAsFixed(0)}/month';
-  String get formattedYearlyPrice => '$currency${yearlyPrice.toStringAsFixed(0)}/year';
+  // Helper methods for formatted prices
+  String get formattedMonthlyPrice => '₹${monthlyPrice.toStringAsFixed(0)}/month';
+  
+  String get formattedYearlyPrice => '₹${yearlyPrice.toStringAsFixed(0)}/year';
+  
+  double get monthlySavings => (monthlyPrice * 12) - yearlyPrice;
 
   Map<String, dynamic> toJson() => {
     'monthlyPrice': monthlyPrice,

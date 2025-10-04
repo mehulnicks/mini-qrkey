@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../shared/models/subscription_models.dart';
 
 // Subscription Service for managing freemium features
@@ -8,15 +9,47 @@ class SubscriptionService {
   static const String _subscriptionKey = 'user_subscription';
   static const String _menuItemCountKey = 'menu_item_count';
   
+  // Premium user email
+  static const String _premiumUserEmail = 'mehulnicks@gmail.com';
+  
   static UserSubscription? _currentSubscription;
   
   // Initialize with free subscription if none exists
   static Future<void> initialize() async {
     _currentSubscription = await _loadSubscription();
-    if (_currentSubscription == null) {
+    
+    // Check if current user is the premium email
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser?.email == _premiumUserEmail) {
+      // Automatically upgrade to premium for this specific email
+      await _upgradeToPremiumForSpecialUser();
+    } else if (_currentSubscription == null) {
       _currentSubscription = UserSubscription.free();
       await _saveSubscription(_currentSubscription!);
     }
+  }
+  
+  // Private method to upgrade specific user to premium
+  static Future<void> _upgradeToPremiumForSpecialUser() async {
+    final now = DateTime.now();
+    final endDate = now.add(const Duration(days: 365 * 10)); // 10 years from now
+    
+    final premiumSubscription = UserSubscription(
+      id: 'special_premium_user',
+      plan: SubscriptionPlan.premium,
+      status: SubscriptionStatus.active,
+      startDate: now,
+      endDate: endDate,
+      billingCycle: SubscriptionBillingCycle.yearly,
+      nextBillingDate: endDate,
+      transactionId: 'special_premium_user',
+      limits: SubscriptionLimits.premium,
+      pricing: SubscriptionPricing.premiumPricing,
+    );
+    
+    _currentSubscription = premiumSubscription;
+    await _saveSubscription(premiumSubscription);
+    print('Premium subscription activated for special user: $_premiumUserEmail');
   }
   
   // Get current subscription
@@ -284,20 +317,6 @@ class SubscriptionService {
     };
   }
   
-  // Get subscription usage statistics
-  static Future<Map<String, dynamic>> getUsageStatistics() async {
-    final currentCount = await getCurrentMenuItemCount();
-    final remaining = await getRemainingMenuItemSlots();
-    
-    return {
-      'currentMenuItems': currentCount,
-      'remainingMenuItems': remaining == -1 ? 'Unlimited' : remaining.toString(),
-      'menuItemUsagePercentage': _currentSubscription?.limits.hasUnlimitedMenuItems == true 
-          ? 0.0 
-          : (currentCount / _currentSubscription!.limits.maxMenuItems * 100).clamp(0.0, 100.0),
-    };
-  }
-  
   // Private helper methods
   static Future<UserSubscription?> _loadSubscription() async {
     try {
@@ -340,9 +359,100 @@ class SubscriptionService {
     await updateMenuItemCount(0);
   }
   
+  // Get limits for a specific plan
+  static SubscriptionLimits getLimitsForPlan(SubscriptionPlan plan) {
+    switch (plan) {
+      case SubscriptionPlan.free:
+        return const SubscriptionLimits(
+          maxMenuItems: 10,
+          maxOrderHistoryDays: 7,
+          analyticsEnabled: false,
+          multiDeviceSync: false,
+          prioritySupport: false,
+          customizationEnabled: false,
+          advancedReportsEnabled: false,
+          apiAccessEnabled: false,
+        );
+      case SubscriptionPlan.premium:
+        return const SubscriptionLimits(
+          maxMenuItems: -1,
+          maxOrderHistoryDays: -1,
+          analyticsEnabled: true,
+          multiDeviceSync: true,
+          prioritySupport: true,
+          customizationEnabled: true,
+          advancedReportsEnabled: true,
+          apiAccessEnabled: false,
+        );
+      case SubscriptionPlan.enterprise:
+        return const SubscriptionLimits(
+          maxMenuItems: -1,
+          maxOrderHistoryDays: -1,
+          analyticsEnabled: true,
+          multiDeviceSync: true,
+          prioritySupport: true,
+          customizationEnabled: true,
+          advancedReportsEnabled: true,
+          apiAccessEnabled: true,
+        );
+    }
+  }
+  
+    // Get usage statistics
+  static Future<Map<String, dynamic>> getUsageStatistics() async {
+    if (_currentSubscription == null) {
+      await initialize();
+    }
+    
+    final currentMenuItems = await getCurrentMenuItemCount();
+    final subscription = _currentSubscription!;
+    
+    String remainingMenuItems;
+    double usagePercentage;
+    
+    if (subscription.limits.hasUnlimitedMenuItems) {
+      remainingMenuItems = 'Unlimited';
+      usagePercentage = 0.0;
+    } else {
+      final remaining = subscription.limits.maxMenuItems - currentMenuItems;
+      remainingMenuItems = remaining.toString();
+      usagePercentage = (currentMenuItems / subscription.limits.maxMenuItems) * 100;
+    }
+    
+    return {
+      'currentMenuItems': currentMenuItems,
+      'maxMenuItems': subscription.limits.hasUnlimitedMenuItems ? -1 : subscription.limits.maxMenuItems,
+      'remainingMenuItems': remainingMenuItems,
+      'menuItemUsagePercentage': usagePercentage,
+      'hasUnlimitedMenuItems': subscription.limits.hasUnlimitedMenuItems,
+      'canAddMoreItems': subscription.canAddMenuItem(currentMenuItems),
+    };
+  }
+  
   // Simulate menu item count for testing
+  static Future<void> simulateMenuItemCount(int count) async {
+    await updateMenuItemCount(count);
+  }
+
+  // Set menu item count for testing (alias for simulateMenuItemCount)
   static Future<void> setMenuItemCountForTesting(int count) async {
     await updateMenuItemCount(count);
+  }
+
+  // Quick upgrade to premium for testing
+  static Future<bool> upgradeToTestPremium() async {
+    return await upgradeToPremium(
+      billingCycle: SubscriptionBillingCycle.monthly,
+      transactionId: 'test_upgrade_${DateTime.now().millisecondsSinceEpoch}',
+    );
+  }
+
+  // Quick upgrade to enterprise for testing
+  static Future<bool> upgradeToTestEnterprise() async {
+    return await upgradeToEnterprise(
+      billingCycle: SubscriptionBillingCycle.monthly,
+      transactionId: 'test_enterprise_${DateTime.now().millisecondsSinceEpoch}',
+    );
   }
   
   // Clear all cached subscription data (for logout)

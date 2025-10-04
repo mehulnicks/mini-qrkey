@@ -14,6 +14,17 @@ The app has **multiple main files** for different deployment scenarios:
 
 **Key Pattern**: Always use `flutter run -t lib/main.dart` unless specifically testing other versions.
 
+### Current Navigation Structure (Enhanced Main Screen)
+The primary app uses a **simplified 2-tab structure**:
+- **Tab 0**: Dashboard - Quick metrics, subscription status, recent activity, quick actions
+- **Tab 1**: QSR System - Complete restaurant management (embedded `clean_qsr_main.dart`)
+
+**Settings Integration**: All configuration is accessed through the QSR System's Settings tab, which includes:
+- Analytics & Reports (Premium features with subscription gating)
+- Subscription Management 
+- Profile settings
+- App configuration
+
 ### Hybrid State Management & Cloud Integration
 - **Riverpod** for reactive state management with providers
 - **Firebase Auth** for user authentication (Google Sign-in, email/password, anonymous)
@@ -28,6 +39,10 @@ final validation = await SubscriptionService.validateAddMenuItem();
 if (!validation.isValid) {
   return PremiumUpgradeDialog(feature: validation.requiredFeature);
 }
+
+// Special user auto-upgrade pattern
+const String _premiumUserEmail = 'mehulnicks@gmail.com';
+// Auto-detects and upgrades mehulnicks@gmail.com to premium (10-year subscription)
 ```
 
 **Subscription Plans**: Free (10 menu items), Premium (unlimited), Enterprise (API access)
@@ -59,6 +74,10 @@ flutter run -d 000783488002925 -t lib/main.dart # Android (replace device ID)
 - `r` - Hot reload (preserves state)
 - `R` - Hot restart (resets state) 
 - Essential for testing subscription flows and localization changes
+
+### Current Device Setup
+- **Android Device**: A142 (ID: 000783488002925) - Currently configured and working
+- **Directory**: Always run from `/Users/daminisonawane/Desktop/mini-qrkey/qsr_flutter_app`
 
 ## 🔧 Integration Patterns
 
@@ -94,14 +113,19 @@ StreamBuilder<User?>(
 
 ### Screen Architecture
 - `lib/main.dart` - **Primary app entry** with enhanced authentication
-- `lib/screens/enhanced_main_screen.dart` - **Main interface** with 4-tab navigation
-- `lib/clean_qsr_main.dart` - **Complete QSR system** (15,000+ lines, integrated as Tab 0)
+- `lib/screens/enhanced_main_screen.dart` - **Main interface** with 2-tab navigation
+- `lib/clean_qsr_main.dart` - **Complete QSR system** (15,000+ lines, integrated as Tab 1)
 
-**Tab Structure**:
-- Tab 0: QSR System (complete restaurant management)
-- Tab 1: KOT Screen (Kitchen Order Tickets)
-- Tab 2: Premium Analytics (subscription-gated)
-- Tab 3: Profile/Subscription Management
+**Tab Structure (Current)**:
+- Tab 0: Dashboard (Quick metrics, subscription status, recent activity)
+- Tab 1: QSR System (complete restaurant management embedded)
+
+**QSR System Internal Navigation** (5 tabs within Tab 1):
+- Dashboard: Business overview with today's summary
+- Menu: Order placement and menu management 
+- Orders: Order history and management
+- KOT: Kitchen Order Tickets
+- Settings: Analytics, subscription, profile, app settings
 
 ### Reusable Components
 - `lib/widgets/qrkey_logo.dart` - Logo system with QR fallbacks
