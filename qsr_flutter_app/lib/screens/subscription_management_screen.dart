@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/subscription_service.dart';
 import '../shared/models/subscription_models.dart';
+import '../core/theme/qrkey_theme.dart';
 
 class SubscriptionManagementScreen extends ConsumerStatefulWidget {
   const SubscriptionManagementScreen({super.key});
@@ -33,7 +34,7 @@ class _SubscriptionManagementScreenState extends ConsumerState<SubscriptionManag
     return Scaffold(
       appBar: AppBar(
         title: const Text('Subscription Management'),
-        backgroundColor: Colors.blue.shade600,
+        backgroundColor: QRKeyTheme.primaryBlue, // Blue color
         foregroundColor: Colors.white,
       ),
       body: _isLoading
@@ -176,7 +177,7 @@ class _SubscriptionManagementScreenState extends ConsumerState<SubscriptionManag
           value: progress,
           backgroundColor: Colors.grey.shade200,
           valueColor: AlwaysStoppedAnimation<Color>(
-            progress > 0.8 ? Colors.red : Colors.blue,
+            progress > 0.8 ? Colors.red : QRKeyTheme.primaryBlue, // Blue color
           ),
         ),
       ],

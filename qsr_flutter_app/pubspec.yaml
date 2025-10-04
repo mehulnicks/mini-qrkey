@@ -1,5 +1,5 @@
-name: qsr_flutter_app
-description: A Flutter app for Quick Service Restaurants to manage orders and connect to Bluetooth printers.
+name: qrkey
+description: QRKEY - Smart QR-based restaurant management system with order processing and cloud integration.
 
 publish_to: 'none'
 
@@ -77,3 +77,4 @@ flutter:
     - assets/fonts/
     - assets/translations/
     - assets/images/
+    - assets/images/qrkey_logo.png

@@ -9,7 +9,9 @@ import 'clean_qsr_main.dart' as original_app;
 import 'kot_screen.dart';
 import 'core/config/supabase_config.dart';
 import 'screens/enhanced_main_screen.dart';
+import 'widgets/qrkey_logo.dart';
 import 'services/subscription_service.dart';
+import 'core/theme/qrkey_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -47,11 +49,8 @@ class QSRMobileApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'QSR Management App',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        useMaterial3: true,
-      ),
+      title: 'QRKEY',
+      theme: QRKeyTheme.lightTheme,
       home: const AuthWrapper(),
     );
   }
@@ -87,16 +86,7 @@ class LoginScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Colors.blue[700]!,
-            Colors.blue[500]!,
-          ],
-        ),
-      ),
+      decoration: QRKeyTheme.getPrimaryGradientDecoration(),
       child: Scaffold(
         backgroundColor: Colors.transparent,
         body: Center(
@@ -106,14 +96,15 @@ class LoginScreen extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 // App Logo/Title
-                const Icon(
-                  Icons.restaurant,
-                  size: 80,
-                  color: Colors.white,
+                const QRKeyLogo(
+                  width: 120,
+                  height: 120,
+                  iconColor: Colors.white,
+                  iconSize: 80,
                 ),
                 const SizedBox(height: 24),
                 const Text(
-                  'QSR Management',
+                  'QRKEY',
                   style: TextStyle(
                     fontSize: 32,
                     fontWeight: FontWeight.bold,
@@ -148,7 +139,7 @@ class LoginScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 16),
                         const Text(
-                          'Access the enhanced QSR system with freemium features and cloud integration',
+                          'Access the enhanced QRKEY system with freemium features and cloud integration',
                           textAlign: TextAlign.center,
                           style: TextStyle(fontSize: 16),
                         ),

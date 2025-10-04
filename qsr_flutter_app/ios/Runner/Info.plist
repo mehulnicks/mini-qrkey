@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>qsr_flutter_app</string>
+    <string>QRKEY</string>
     <key>CFBundleDisplayName</key>
-    <string>Quick Service Restaurant</string>
+    <string>QRKEY</string>
     <key>CFBundleIdentifier</key>
-    <string>com.example.qsr_flutter_app</string>
+    <string>com.qrkey.app</string>
     <key>CFBundleVersion</key>
     <string>1.0</string>
     <key>CFBundleShortVersionString</key>

@@ -5,10 +5,12 @@ import '../clean_qsr_main.dart' as original_app;
 import '../kot_screen.dart';
 import '../services/subscription_service.dart';
 import '../shared/models/subscription_models.dart';
+import '../core/theme/qrkey_theme.dart';
 import 'freemium_demo_screen.dart';
 import 'supabase_demo_screen.dart';
 import 'subscription_management_screen.dart';
 import 'cloud_features_screen.dart';
+import '../widgets/qrkey_logo.dart';
 
 /// Enhanced main screen that integrates freemium and Supabase features
 /// without disturbing the existing QSR system UI
@@ -69,7 +71,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
           children: [
             CircularProgressIndicator(),
             SizedBox(height: 16),
-            Text('Loading QSR Management...'),
+            Text('Loading QRKEY...'),
           ],
         ),
       ),
@@ -96,7 +98,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
       type: BottomNavigationBarType.fixed,
       currentIndex: _selectedIndex,
       onTap: (index) => setState(() => _selectedIndex = index),
-      selectedItemColor: Colors.blue[600],
+      selectedItemColor: QRKeyTheme.primaryBlue, // Main app blue color
       unselectedItemColor: Colors.grey[600],
       items: const [
         BottomNavigationBarItem(
@@ -150,7 +152,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               children: [
                 CircleAvatar(
                   radius: 30,
-                  backgroundColor: Colors.blue.shade100,
+                  backgroundColor: QRKeyTheme.primaryBlue.withOpacity(0.1), // Blue background
                   child: Text(
                     (currentUser?.displayName?.isNotEmpty == true) 
                         ? currentUser!.displayName!.substring(0, 1).toUpperCase()
@@ -160,7 +162,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
-                      color: Colors.blue.shade600,
+                      color: QRKeyTheme.primaryBlue, // Blue color
                     ),
                   ),
                 ),
@@ -363,7 +365,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               children: [
                 _buildQuickActionCard(
                   icon: Icons.restaurant_menu,
-                  title: 'QSR System',
+                  title: 'QRKEY System',
                   subtitle: 'Full restaurant management',
                   onTap: () => _navigateToQSRSystem(),
                 ),
@@ -413,7 +415,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               Icon(
                 icon,
                 size: 32,
-                color: canAccess ? Colors.blue.shade600 : Colors.grey.shade400,
+                color: canAccess ? QRKeyTheme.primaryBlue : Colors.grey.shade400, // Blue color
               ),
               const SizedBox(height: 8),
               Text(
@@ -472,7 +474,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               'New menu item added',
               '15 minutes ago',
               Icons.restaurant_menu,
-              Colors.blue,
+              QRKeyTheme.primaryBlue, // Blue color
             ),
             _buildActivityCard(
               'KOT printed for Table 5',
@@ -569,7 +571,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
           child: ListTile(
             leading: Icon(
               feature.icon,
-              color: canAccess ? Colors.blue.shade600 : Colors.grey.shade400,
+              color: canAccess ? QRKeyTheme.primaryBlue : Colors.grey.shade400, // Blue color
             ),
             title: Text(
               feature.title,
@@ -623,7 +625,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
           children: [
             CircleAvatar(
               radius: 40,
-              backgroundColor: Colors.blue.shade100,
+              backgroundColor: QRKeyTheme.primaryBlue.withOpacity(0.1), // Blue background
               child: Text(
                 (currentUser?.displayName?.isNotEmpty == true) 
                     ? currentUser!.displayName!.substring(0, 1).toUpperCase()
@@ -633,7 +635,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                 style: TextStyle(
                   fontSize: 32,
                   fontWeight: FontWeight.bold,
-                  color: Colors.blue.shade600,
+                  color: QRKeyTheme.primaryBlue, // Blue color
                 ),
               ),
             ),

@@ -39,7 +39,7 @@ class _FreemiumDemoScreenState extends ConsumerState<FreemiumDemoScreen> {
       backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
         title: const Text(
-          'QSR Freemium Demo',
+          'QRKEY Freemium Demo',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         backgroundColor: const Color(0xFFFF9933),
@@ -84,7 +84,7 @@ class _FreemiumDemoScreenState extends ConsumerState<FreemiumDemoScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Welcome to QSR Management!',
+            'Welcome to QRKEY!',
             style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
