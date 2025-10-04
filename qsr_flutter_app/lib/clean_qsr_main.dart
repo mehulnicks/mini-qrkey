@@ -210,6 +210,14 @@ class AppLocalizations {
       'discount_reason': 'Discount Reason',
       'discount_applied': 'Discount Applied',
       'no_discount': 'No Discount',
+      // Dashboard
+      'dashboard': 'Dashboard',
+      'today_summary': 'Today\'s Summary',
+      'today_orders': 'Today\'s Orders',
+      'today_revenue': 'Today\'s Revenue',
+      'pending_orders': 'Pending Orders',
+      'completed_orders_today': 'Completed Today',
+      'menu_items': 'Menu Items',
 
     },
     'hi': {
@@ -376,6 +384,14 @@ class AppLocalizations {
       'discount_reason': 'छूट कारण',
       'discount_applied': 'छूट लागू',
       'no_discount': 'कोई छूट नहीं',
+      // Dashboard
+      'dashboard': 'डैशबोर्ड',
+      'today_summary': 'आज का सारांश',
+      'today_orders': 'आज के ऑर्डर',
+      'today_revenue': 'आज की कमाई',
+      'pending_orders': 'बाकी ऑर्डर',
+      'completed_orders_today': 'आज पूरे हुए',
+      'menu_items': 'मेनू आइटम',
 
     },
   };
@@ -2379,7 +2395,7 @@ class QSRApp extends StatelessWidget {
     return MaterialApp(
       title: 'QSR Management App',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFFF9933)),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFFF9933)), // Changed to saffron theme
         useMaterial3: true,
         appBarTheme: const AppBarTheme(
           centerTitle: true,
@@ -5544,11 +5560,18 @@ class MainScreen extends ConsumerStatefulWidget {
 class _MainScreenState extends ConsumerState<MainScreen> {
   int _selectedIndex = 0;
 
+  void updateSelectedIndex(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
+
   final List<Widget> _screens = [
+    const DashboardScreen(), // Dashboard tab (new)
     const OrderPlacementScreen(), // Menu tab
     const OrderHistoryScreen(), // Orders tab
     const KOTScreen(), // KOT tab
-    const SettingsScreen(), // Settings tab (will include Reports)
+    const SettingsScreen(), // Settings tab (includes Analytics & Subscription)
   ];
 
   @override
@@ -5561,8 +5584,12 @@ class _MainScreenState extends ConsumerState<MainScreen> {
             currentIndex: _selectedIndex,
             onTap: (index) => setState(() => _selectedIndex = index),
             type: BottomNavigationBarType.fixed,
-            selectedItemColor: const Color(0xFFFF9933),
+            selectedItemColor: const Color(0xFFFF9933), // Updated to QRKEY blue
             items: [
+              BottomNavigationBarItem(
+                icon: const Icon(Icons.dashboard),
+                label: l10n(ref, 'dashboard'),
+              ),
               BottomNavigationBarItem(
                 icon: const Icon(Icons.restaurant_menu),
                 label: l10n(ref, 'menu'),
@@ -5583,6 +5610,831 @@ class _MainScreenState extends ConsumerState<MainScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+// Dashboard Screen (QRKEY Integration)
+class DashboardScreen extends ConsumerStatefulWidget {
+  const DashboardScreen({super.key});
+
+  @override
+  ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends ConsumerState<DashboardScreen> {
+  bool _isLoadingSubscription = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSubscriptionData();
+  }
+
+  Future<void> _loadSubscriptionData() async {
+    // Simple loading simulation
+    await Future.delayed(const Duration(milliseconds: 500));
+    setState(() {
+      _isLoadingSubscription = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          l10n(ref, 'dashboard'),
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 0.5,
+          ),
+        ),
+        backgroundColor: const Color(0xFFFF9933),
+        foregroundColor: Colors.white,
+        elevation: 4,
+        centerTitle: true,
+        toolbarHeight: 56,
+      ),
+      body: _isLoadingSubscription 
+        ? const Center(child: CircularProgressIndicator())
+        : SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildHeader(currentUser),
+                  const SizedBox(height: 20),
+                  _buildSubscriptionBanner(),
+                  const SizedBox(height: 20),
+                  _buildQuickStats(),
+                  const SizedBox(height: 20),
+                  _buildQuickActions(),
+                  const SizedBox(height: 20),
+                  _buildRecentActivity(),
+                ],
+              ),
+            ),
+          ),
+    );
+  }
+
+  Widget _buildHeader(User? currentUser) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 30,
+                  backgroundColor: const Color(0xFFFF9933).withOpacity(0.1),
+                  child: Text(
+                    (currentUser?.displayName?.isNotEmpty == true) 
+                        ? currentUser!.displayName!.substring(0, 1).toUpperCase()
+                        : (currentUser?.email?.isNotEmpty == true)
+                            ? currentUser!.email!.substring(0, 1).toUpperCase() 
+                            : 'U',
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFFFF9933),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Welcome back!',
+                        style: Theme.of(context).textTheme.headlineSmall,
+                      ),
+                      Text(
+                        currentUser?.displayName ?? 
+                        currentUser?.email ?? 
+                        'Restaurant Manager',
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Row(
+                  children: [
+                    _buildPlanBadge(),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: Icon(
+                        Icons.logout,
+                        color: Colors.grey.shade600,
+                        size: 20,
+                      ),
+                      onPressed: () => _showLogoutDialog(context),
+                      tooltip: 'Logout',
+                      padding: const EdgeInsets.all(8),
+                      constraints: const BoxConstraints(
+                        minWidth: 32,
+                        minHeight: 32,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlanBadge() {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final isPremium = currentUser != null;
+    
+    Color badgeColor = isPremium ? Colors.green : Colors.grey;
+    String planName = isPremium ? 'Premium' : 'Free';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: badgeColor,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Text(
+        planName,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSubscriptionBanner() {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final isPremium = currentUser != null;
+    
+    if (!isPremium) {
+      return _buildUpgradeBanner();
+    } else {
+      return _buildPremiumStatusBanner();
+    }
+  }
+
+  Widget _buildUpgradeBanner() {
+    return Card(
+      color: Colors.orange.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Icon(Icons.star, color: Colors.orange.shade600, size: 32),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Upgrade to Premium',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.orange.shade800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Unlock advanced analytics, cloud sync, and more!',
+                    style: TextStyle(
+                      color: Colors.orange.shade700,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () => _openSubscriptionManagement(context),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange.shade600,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Upgrade'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPremiumStatusBanner() {
+    return Card(
+      color: Colors.green.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Icon(Icons.check_circle, color: Colors.green.shade600, size: 32),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Premium Plan Active',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green.shade800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'You have access to all premium features!',
+                    style: TextStyle(
+                      color: Colors.green.shade700,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            TextButton(
+              onPressed: () => _openSubscriptionManagement(context),
+              child: const Text('Manage'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuickStats() {
+    final orders = ref.watch(ordersProvider);
+    final menuItems = ref.watch(menuProvider);
+    final settings = ref.watch(settingsProvider);
+    
+    // Calculate stats from actual data
+    final today = DateTime.now();
+    final todayStart = DateTime(today.year, today.month, today.day);
+    
+    // Today's orders
+    final todaysOrders = orders.where((order) => 
+      order.createdAt.isAfter(todayStart)
+    ).toList();
+    
+    // Revenue calculation (only completed orders)
+    final completedTodaysOrders = todaysOrders.where((order) => 
+      order.status == OrderStatus.completed
+    ).toList();
+    
+    final todaysRevenue = completedTodaysOrders.fold(0.0, (sum, order) => 
+      sum + order.getGrandTotal(settings)
+    );
+    
+    // Pending orders (preparing, confirmed, pending, ready)
+    final pendingOrders = orders.where((order) => 
+      order.status == OrderStatus.pending ||
+      order.status == OrderStatus.confirmed ||
+      order.status == OrderStatus.preparing ||
+      order.status == OrderStatus.ready
+    ).toList();
+
+    // Format Indian currency (₹ with comma separation for thousands)
+    String formatIndianCurrency(double amount) {
+      if (amount >= 100000) {
+        return '${settings.currency}${(amount / 100000).toStringAsFixed(1)}L'; // Lakhs
+      } else if (amount >= 1000) {
+        return '${settings.currency}${(amount / 1000).toStringAsFixed(1)}K'; // Thousands
+      } else {
+        return '${settings.currency}${amount.toStringAsFixed(0)}';
+      }
+    }
+    
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.analytics, color: Color(0xFFFF9933), size: 24),
+                const SizedBox(width: 8),
+                Text(
+                  l10n(ref, 'today_summary'),
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: const Color(0xFFFF9933),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildStatCard(
+                    'today_orders',
+                    '${todaysOrders.length}',
+                    Icons.shopping_bag, // Indian shopping icon
+                    Colors.blue,
+                    ref,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildStatCard(
+                    'today_revenue',
+                    formatIndianCurrency(todaysRevenue),
+                    Icons.currency_rupee, // Indian Rupee icon
+                    Colors.green,
+                    ref,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildStatCard(
+                    'pending_orders',
+                    '${pendingOrders.length}',
+                    Icons.hourglass_top, // Waiting/pending icon
+                    Colors.orange,
+                    ref,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildStatCard(
+                    'menu_items',
+                    '${menuItems.length}',
+                    Icons.restaurant, // Indian restaurant icon
+                    const Color(0xFFFF9933),
+                    ref,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatCard(String titleKey, String value, IconData icon, Color color, WidgetRef ref) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.1),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: color, size: 24),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  l10n(ref, titleKey),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: color.withOpacity(0.8),
+                    fontWeight: FontWeight.w600,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: color,
+              letterSpacing: 1.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickActions() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.flash_on, color: Color(0xFFFF9933), size: 24),
+                const SizedBox(width: 8),
+                Text(
+                  'त्वरित कार्य (Quick Actions)',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: const Color(0xFFFF9933),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildQuickActionCard(
+                    icon: Icons.shopping_cart,
+                    title: 'नया ऑर्डर',
+                    subtitle: 'New Order',
+                    description: 'Take customer orders',
+                    onTap: () => _navigateToTab(1), // Navigate to Menu tab
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildQuickActionCard(
+                    icon: Icons.kitchen,
+                    title: 'रसोई डिस्प्ले',
+                    subtitle: 'KOT Screen',
+                    description: 'Kitchen orders',
+                    onTap: () => _navigateToTab(3), // Navigate to KOT tab
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildQuickActionCard(
+                    icon: Icons.restaurant_menu,
+                    title: 'मेनू प्रबंधन',
+                    subtitle: 'Menu Management',
+                    description: 'Add/Edit items',
+                    onTap: () => _navigateToTab(2), // Navigate to Management tab
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildQuickActionCard(
+                    icon: Icons.receipt_long,
+                    title: 'बिल हिस्ट्री',
+                    subtitle: 'Order History',
+                    description: 'View past orders',
+                    onTap: () => _navigateToTab(4), // Navigate to Orders tab
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRecentActivity() {
+    final orders = ref.watch(ordersProvider);
+    
+    // Get the 3 most recent orders
+    final recentOrders = orders.take(3).toList();
+    
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.history, color: Color(0xFFFF9933), size: 24),
+                const SizedBox(width: 8),
+                Text(
+                  'हाल की गतिविधि (Recent Activity)',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: const Color(0xFFFF9933),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: () => _navigateToTab(4), // Navigate to Orders tab
+                  icon: const Icon(Icons.arrow_forward_ios, size: 14),
+                  label: const Text('सभी देखें'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFFFF9933),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (recentOrders.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 20),
+                child: Center(
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.receipt_long_outlined,
+                        size: 48,
+                        color: Colors.grey.shade400,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'No recent orders',
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Orders will appear here once you start taking them',
+                        style: TextStyle(
+                          color: Colors.grey.shade500,
+                          fontSize: 12,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              ...recentOrders.map((order) => _buildOrderActivityCard(order)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOrderActivityCard(Order order) {
+    final now = DateTime.now();
+    final difference = now.difference(order.createdAt);
+    
+    String timeAgo;
+    if (difference.inMinutes < 1) {
+      timeAgo = 'Just now';
+    } else if (difference.inMinutes < 60) {
+      timeAgo = '${difference.inMinutes} min ago';
+    } else if (difference.inHours < 24) {
+      timeAgo = '${difference.inHours} hr ago';
+    } else {
+      timeAgo = '${difference.inDays} day${difference.inDays > 1 ? 's' : ''} ago';
+    }
+    
+    IconData icon;
+    Color color;
+    String statusText;
+    
+    switch (order.status) {
+      case OrderStatus.pending:
+        icon = Icons.schedule;
+        color = Colors.orange;
+        statusText = 'placed';
+        break;
+      case OrderStatus.confirmed:
+        icon = Icons.check_circle_outline;
+        color = Colors.blue;
+        statusText = 'confirmed';
+        break;
+      case OrderStatus.preparing:
+        icon = Icons.kitchen;
+        color = Colors.purple;
+        statusText = 'being prepared';
+        break;
+      case OrderStatus.ready:
+        icon = Icons.done_all;
+        color = Colors.green;
+        statusText = 'ready';
+        break;
+      case OrderStatus.completed:
+        icon = Icons.check_circle;
+        color = Colors.green;
+        statusText = 'completed';
+        break;
+      case OrderStatus.cancelled:
+        icon = Icons.cancel;
+        color = Colors.red;
+        statusText = 'cancelled';
+        break;
+    }
+    
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Order #${order.id} $statusText',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  Text(
+                    timeAgo,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Text(
+              '${order.items.length} item${order.items.length > 1 ? 's' : ''}',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade600,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _navigateToTab(int tabIndex) {
+    // Find the MainScreen and update its selected index
+    if (mounted) {
+      // Navigate to the parent MainScreen and change tab
+      final mainScreenContext = context.findAncestorStateOfType<_MainScreenState>();
+      if (mainScreenContext != null) {
+        mainScreenContext.updateSelectedIndex(tabIndex);
+      }
+    }
+  }
+
+  void _showLogoutDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Logout'),
+          content: const Text('Are you sure you want to logout from QRKEY?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                await _performLogout();
+              },
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.red,
+              ),
+              child: const Text('Logout'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _performLogout() async {
+    try {
+      // Sign out from Firebase
+      await FirebaseAuth.instance.signOut();
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Successfully logged out'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Logout failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _buildQuickActionCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required String description,
+    required VoidCallback onTap,
+  }) {
+    return Card(
+      elevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            gradient: LinearGradient(
+              colors: [
+                const Color(0xFFFF9933).withOpacity(0.05),
+                const Color(0xFFFF9933).withOpacity(0.1),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFF9933).withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  icon,
+                  size: 28,
+                  color: const Color(0xFFFF9933),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFFFF9933),
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                description,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Colors.grey.shade600,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -5777,9 +6629,19 @@ class _OrderPlacementScreenState extends ConsumerState<OrderPlacementScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(l10n(ref, 'menu')),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        elevation: 0,
+        title: Text(
+          l10n(ref, 'menu'),
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 0.5,
+          ),
+        ),
+        backgroundColor: const Color(0xFFFF9933),
+        foregroundColor: Colors.white,
+        elevation: 4,
+        centerTitle: true,
+        toolbarHeight: 56,
         actions: [
           if (currentOrder.isNotEmpty)
             Container(
@@ -7673,11 +8535,19 @@ class OrderHistoryScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(l10n(ref, 'orders')),
+        title: Text(
+          l10n(ref, 'orders'),
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 0.5,
+          ),
+        ),
         backgroundColor: const Color(0xFFFF9933),
         foregroundColor: Colors.white,
-        elevation: 0,
-        toolbarHeight: 48,
+        elevation: 4,
+        centerTitle: true,
+        toolbarHeight: 56,
       ),
       body: DefaultTabController(
         length: 2,
@@ -10040,9 +10910,19 @@ class SettingsScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(l10n(ref, 'settings')),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        toolbarHeight: 48,
+        title: Text(
+          l10n(ref, 'settings'),
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 0.5,
+          ),
+        ),
+        backgroundColor: const Color(0xFFFF9933),
+        foregroundColor: Colors.white,
+        elevation: 4,
+        centerTitle: true,
+        toolbarHeight: 56,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
@@ -10226,7 +11106,56 @@ class SettingsScreen extends ConsumerWidget {
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: ElevatedButton.icon(
-                                      onPressed: () => _showLogoutDialog(context),
+                                      onPressed: () async {
+                                        // Show logout dialog
+                                        final shouldLogout = await showDialog<bool>(
+                                          context: context,
+                                          builder: (BuildContext context) {
+                                            return AlertDialog(
+                                              title: const Text('Logout'),
+                                              content: const Text('Are you sure you want to logout from QRKEY?'),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () => Navigator.of(context).pop(false),
+                                                  child: const Text('Cancel'),
+                                                ),
+                                                TextButton(
+                                                  onPressed: () => Navigator.of(context).pop(true),
+                                                  style: TextButton.styleFrom(
+                                                    foregroundColor: Colors.red,
+                                                  ),
+                                                  child: const Text('Logout'),
+                                                ),
+                                              ],
+                                            );
+                                          },
+                                        );
+                                        
+                                        if (shouldLogout == true) {
+                                          try {
+                                            // Sign out from Firebase
+                                            await FirebaseAuth.instance.signOut();
+                                            
+                                            if (context.mounted) {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                const SnackBar(
+                                                  content: Text('Successfully logged out'),
+                                                  backgroundColor: Colors.green,
+                                                ),
+                                              );
+                                            }
+                                          } catch (e) {
+                                            if (context.mounted) {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                SnackBar(
+                                                  content: Text('Logout failed: $e'),
+                                                  backgroundColor: Colors.red,
+                                                ),
+                                              );
+                                            }
+                                          }
+                                        }
+                                      },
                                       icon: const Icon(Icons.logout_rounded, size: 18),
                                       label: const Text('Logout'),
                                       style: ElevatedButton.styleFrom(
@@ -10637,6 +11566,269 @@ class SettingsScreen extends ConsumerWidget {
                                         ),
                                       ),
                                     ],
+                                  ],
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Analytics Section (QRKEY Integration)
+            Card(
+              child: ExpansionTile(
+                leading: const Icon(Icons.analytics, color: Color(0xFFFF9933)),
+                title: const Text('Analytics', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                subtitle: Consumer(
+                  builder: (context, ref, child) {
+                    return FutureBuilder<User?>(
+                      future: FirebaseAuth.instance.authStateChanges().first,
+                      builder: (context, snapshot) {
+                        final user = snapshot.data;
+                        return Text(user != null ? 'Premium features available' : 'Sign in for analytics');
+                      },
+                    );
+                  },
+                ),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        Consumer(
+                          builder: (context, ref, child) {
+                            return FutureBuilder<User?>(
+                              future: FirebaseAuth.instance.authStateChanges().first,
+                              builder: (context, snapshot) {
+                                final user = snapshot.data;
+                                final canAccess = user != null;
+                                
+                                return Column(
+                                  children: [
+                                    ListTile(
+                                      leading: Icon(
+                                        Icons.bar_chart,
+                                        color: canAccess ? const Color(0xFFFF9933) : Colors.grey,
+                                      ),
+                                      title: const Text('Sales Reports'),
+                                      subtitle: const Text('View detailed sales analytics and trends'),
+                                      trailing: canAccess 
+                                        ? const Icon(Icons.arrow_forward_ios)
+                                        : Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: Colors.orange.shade100,
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: Text(
+                                              'Premium',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                color: Colors.orange.shade700,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                      onTap: canAccess ? () => _openAnalytics(context) : () => _showPremiumRequired(context),
+                                    ),
+                                    ListTile(
+                                      leading: Icon(
+                                        Icons.insights,
+                                        color: canAccess ? const Color(0xFFFF9933) : Colors.grey,
+                                      ),
+                                      title: const Text('Business Insights'),
+                                      subtitle: const Text('Customer behavior and menu performance'),
+                                      trailing: canAccess 
+                                        ? const Icon(Icons.arrow_forward_ios)
+                                        : Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: Colors.orange.shade100,
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: Text(
+                                              'Premium',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                color: Colors.orange.shade700,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                      onTap: canAccess ? () => _openInsights(context) : () => _showPremiumRequired(context),
+                                    ),
+                                    ListTile(
+                                      leading: Icon(
+                                        Icons.dashboard,
+                                        color: canAccess ? const Color(0xFFFF9933) : Colors.grey,
+                                      ),
+                                      title: const Text('Live Dashboard'),
+                                      subtitle: const Text('Real-time business monitoring'),
+                                      trailing: canAccess 
+                                        ? const Icon(Icons.arrow_forward_ios)
+                                        : Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: Colors.orange.shade100,
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: Text(
+                                              'Premium',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                color: Colors.orange.shade700,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                      onTap: canAccess ? () => _openDashboard(context) : () => _showPremiumRequired(context),
+                                    ),
+                                  ],
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Subscription Management (QRKEY Integration)
+            Card(
+              child: ExpansionTile(
+                leading: const Icon(Icons.star, color: Color(0xFFFF9933)),
+                title: const Text('Subscription', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                subtitle: Consumer(
+                  builder: (context, ref, child) {
+                    return FutureBuilder<User?>(
+                      future: FirebaseAuth.instance.authStateChanges().first,
+                      builder: (context, snapshot) {
+                        final user = snapshot.data;
+                        return Text(user != null ? 'Premium Plan Active' : 'Free Plan • Upgrade Available');
+                      },
+                    );
+                  },
+                ),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        Consumer(
+                          builder: (context, ref, child) {
+                            return FutureBuilder<User?>(
+                              future: FirebaseAuth.instance.authStateChanges().first,
+                              builder: (context, snapshot) {
+                                final user = snapshot.data;
+                                final isPremium = user != null;
+                                
+                                return Column(
+                                  children: [
+                                    // Current Plan Status
+                                    Container(
+                                      padding: const EdgeInsets.all(16),
+                                      decoration: BoxDecoration(
+                                        color: isPremium ? Colors.green.shade50 : Colors.orange.shade50,
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                          color: isPremium ? Colors.green.shade200 : Colors.orange.shade200,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            isPremium ? Icons.star : Icons.star_border,
+                                            color: isPremium ? Colors.green.shade600 : Colors.orange.shade600,
+                                            size: 32,
+                                          ),
+                                          const SizedBox(width: 16),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  isPremium ? 'Premium Plan' : 'Free Plan',
+                                                  style: TextStyle(
+                                                    fontSize: 18,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: isPremium ? Colors.green.shade800 : Colors.orange.shade800,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  isPremium 
+                                                      ? 'Access to all premium features'
+                                                      : 'Upgrade to unlock advanced features',
+                                                  style: TextStyle(
+                                                    color: isPremium ? Colors.green.shade700 : Colors.orange.shade700,
+                                                    fontSize: 14,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          if (!isPremium)
+                                            ElevatedButton(
+                                              onPressed: () => _openSubscriptionManagement(context),
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: Colors.orange.shade600,
+                                                foregroundColor: Colors.white,
+                                              ),
+                                              child: const Text('Upgrade'),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    
+                                    // Subscription Actions
+                                    ListTile(
+                                      leading: const Icon(Icons.manage_accounts, color: Color(0xFFFF9933)),
+                                      title: const Text('Manage Subscription'),
+                                      subtitle: const Text('View plans, billing, and account settings'),
+                                      trailing: const Icon(Icons.arrow_forward_ios),
+                                      onTap: () => _openSubscriptionManagement(context),
+                                    ),
+                                    ListTile(
+                                      leading: const Icon(Icons.cloud_sync, color: Color(0xFFFF9933)),
+                                      title: const Text('Cloud Features'),
+                                      subtitle: Text(isPremium ? 'Cloud sync and backup available' : 'Premium feature'),
+                                      trailing: isPremium 
+                                        ? const Icon(Icons.arrow_forward_ios)
+                                        : Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: Colors.orange.shade100,
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: Text(
+                                              'Premium',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                color: Colors.orange.shade700,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                      onTap: isPremium ? () => _openCloudFeatures(context) : () => _showPremiumRequired(context),
+                                    ),
+                                    ListTile(
+                                      leading: const Icon(Icons.info_outline, color: Color(0xFFFF9933)),
+                                      title: const Text('Usage Statistics'),
+                                      subtitle: const Text('View your app usage and limits'),
+                                      trailing: const Icon(Icons.arrow_forward_ios),
+                                      onTap: () => _showUsageStats(context),
+                                    ),
                                   ],
                                 );
                               },
@@ -13357,74 +14549,6 @@ class PrinterListScreen extends ConsumerWidget {
   }
 }
 
-// Logout Dialog Helper Functions
-void _showLogoutDialog(BuildContext context) {
-  showDialog(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Row(
-        children: [
-          Icon(Icons.logout, color: Colors.red),
-          SizedBox(width: 8),
-          Text('Logout'),
-        ],
-      ),
-      content: const Text('Are you sure you want to logout? Your data will remain safely stored.'),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        ElevatedButton(
-          onPressed: () async {
-            Navigator.of(context).pop();
-            await _logout(context);
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.red,
-            foregroundColor: Colors.white,
-          ),
-          child: const Text('Logout'),
-        ),
-      ],
-    ),
-  );
-}
-
-Future<void> _logout(BuildContext context) async {
-  try {
-    await FirebaseAuth.instance.signOut();
-    
-    // Also clear local login state
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('user_logged_in', false);
-    
-    // Show success message
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Successfully logged out'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    }
-    
-    // Navigation will be handled by the auth state listener
-  } catch (e) {
-    // Fallback logout for local state
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('user_logged_in', false);
-    
-    // Force navigation to login
-    if (context.mounted) {
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (context) => const QSRMobileApp()),
-        (route) => false,
-      );
-    }
-  }
-}
-
 // Helper methods for enhanced user account UI
 Widget _buildAccountDetailRow({
   required IconData icon,
@@ -13652,4 +14776,279 @@ class _QuickActionButton extends StatelessWidget {
       ),
     );
   }
+}
+
+// QRKEY Integration Helper Methods
+void _openAnalytics(BuildContext context) {
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.analytics, color: Color(0xFFFF9933)),
+          SizedBox(width: 8),
+          Text('Analytics'),
+        ],
+      ),
+      content: const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.analytics, size: 64, color: Color(0xFFFF9933)),
+          SizedBox(height: 16),
+          Text(
+            'Advanced Analytics',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'Sales reports, customer insights, and business intelligence features are coming soon!',
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
+}
+
+void _openInsights(BuildContext context) {
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.insights, color: Color(0xFFFF9933)),
+          SizedBox(width: 8),
+          Text('Business Insights'),
+        ],
+      ),
+      content: const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.insights, size: 64, color: Color(0xFFFF9933)),
+          SizedBox(height: 16),
+          Text(
+            'Customer Analytics',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'Customer behavior analysis, menu item performance, and business insights are coming soon!',
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
+}
+
+void _openDashboard(BuildContext context) {
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.dashboard, color: Color(0xFFFF9933)),
+          SizedBox(width: 8),
+          Text('Live Dashboard'),
+        ],
+      ),
+      content: const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.dashboard, size: 64, color: Color(0xFFFF9933)),
+          SizedBox(height: 16),
+          Text(
+            'Real-time Dashboard',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'Live business monitoring, real-time sales tracking, and instant notifications are coming soon!',
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
+}
+
+void _openSubscriptionManagement(BuildContext context) {
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.star, color: Color(0xFFFF9933)),
+          SizedBox(width: 8),
+          Text('Subscription Management'),
+        ],
+      ),
+      content: const Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Available Plans:',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+          SizedBox(height: 12),
+          Text('• Free Plan: Basic restaurant management'),
+          Text('• Premium Plan: Analytics + Cloud backup'),
+          Text('• Enterprise Plan: Multi-location support'),
+          SizedBox(height: 16),
+          Text(
+            'Subscription management features are coming soon!',
+            style: TextStyle(color: Colors.grey),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
+}
+
+void _openCloudFeatures(BuildContext context) {
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.cloud_sync, color: Color(0xFFFF9933)),
+          SizedBox(width: 8),
+          Text('Cloud Features'),
+        ],
+      ),
+      content: const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.cloud_sync, size: 64, color: Color(0xFFFF9933)),
+          SizedBox(height: 16),
+          Text(
+            'Cloud Backup & Sync',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'Automatic data backup, multi-device sync, and cloud storage features are coming soon!',
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
+}
+
+void _showUsageStats(BuildContext context) {
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.info_outline, color: Color(0xFFFF9933)),
+          SizedBox(width: 8),
+          Text('Usage Statistics'),
+        ],
+      ),
+      content: const Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Current Usage:', style: TextStyle(fontWeight: FontWeight.bold)),
+          SizedBox(height: 8),
+          Text('• Orders this month: 150'),
+          Text('• Menu items: 45'),
+          Text('• Storage used: 2.3 MB'),
+          Text('• Backup status: Active'),
+          SizedBox(height: 16),
+          Text(
+            'Detailed usage analytics coming soon!',
+            style: TextStyle(color: Colors.grey),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
+}
+
+void _showPremiumRequired(BuildContext context) {
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.star, color: Colors.orange),
+          SizedBox(width: 8),
+          Text('Premium Feature'),
+        ],
+      ),
+      content: const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.star, size: 64, color: Colors.orange),
+          SizedBox(height: 16),
+          Text(
+            'Premium Required',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'This feature requires a premium subscription. Sign in and upgrade to access advanced analytics and features!',
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            Navigator.pop(context);
+            _openSubscriptionManagement(context);
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.orange,
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('Upgrade'),
+        ),
+      ],
+    ),
+  );
 }

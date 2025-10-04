@@ -21,9 +21,19 @@ class KOTScreen extends ConsumerWidget {
     
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Kitchen Order Tickets'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        toolbarHeight: 48,
+        title: const Text(
+          'Kitchen Order Tickets',
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 0.5,
+          ),
+        ),
+        backgroundColor: const Color(0xFFFF9933),
+        foregroundColor: Colors.white,
+        elevation: 4,
+        centerTitle: true,
+        toolbarHeight: 56,
         actions: [
           IconButton(
             icon: const Icon(Icons.summarize),

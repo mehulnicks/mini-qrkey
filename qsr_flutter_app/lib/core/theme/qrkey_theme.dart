@@ -3,12 +3,12 @@ import 'package:flutter/material.dart';
 /// QRKEY App Theme Configuration
 /// 
 /// This file contains the centralized theme configuration for the QRKEY app
-/// to ensure consistent color scheme with the main app using blue theme.
+/// to ensure consistent color scheme with saffron theme.
 class QRKeyTheme {
-  // Brand Colors - Main App Blue Theme
-  static const Color primaryBlue = Color(0xFF1976D2); // Main app primary blue
-  static const Color darkerBlue = Color(0xFF004BA0); // Darker blue for gradients
-  static const Color lightBlue = Color(0xFF63A4FF); // Lighter blue for backgrounds
+  // Brand Colors - Saffron Theme
+  static const Color primarySaffron = Color(0xFFFF9933); // Main app primary saffron
+  static const Color darkerSaffron = Color(0xFFE65100); // Darker saffron for gradients
+  static const Color lightSaffron = Color(0xFFFFCC80); // Lighter saffron for backgrounds
   static const Color blackAccent = Color(0xFF212121); // Black accent
   static const Color greyBackground = Color(0xFFFAFAFA); // Light grey background
   
@@ -23,11 +23,11 @@ class QRKeyTheme {
   static const LinearGradient primaryGradient = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
-    colors: [primaryBlue, darkerBlue],
+    colors: [primarySaffron, darkerSaffron],
   );
   
   static const LinearGradient cardGradient = LinearGradient(
-    colors: [primaryBlue, lightBlue],
+    colors: [primarySaffron, lightSaffron],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
@@ -36,9 +36,9 @@ class QRKeyTheme {
   static ThemeData get lightTheme {
     return ThemeData(
       colorScheme: ColorScheme.fromSeed(
-        seedColor: primaryBlue,
+        seedColor: primarySaffron,
         brightness: Brightness.light,
-        primary: primaryBlue,
+        primary: primarySaffron,
         secondary: blackAccent,
         surface: Colors.white,
         background: greyBackground,
@@ -50,7 +50,7 @@ class QRKeyTheme {
       appBarTheme: const AppBarTheme(
         centerTitle: true,
         elevation: 2,
-        backgroundColor: primaryBlue,
+        backgroundColor: primarySaffron,
         foregroundColor: Colors.white,
         titleTextStyle: TextStyle(
           fontSize: 20,
@@ -84,8 +84,8 @@ class QRKeyTheme {
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           elevation: 6,
-          shadowColor: const Color(0x3D1976D2),
-          backgroundColor: primaryBlue,
+          shadowColor: const Color(0x3DFF9933),
+          backgroundColor: primarySaffron,
           foregroundColor: Colors.white,
           padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
           shape: RoundedRectangleBorder(
@@ -101,7 +101,7 @@ class QRKeyTheme {
       
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          backgroundColor: primaryBlue,
+          backgroundColor: primarySaffron,
           foregroundColor: Colors.white,
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
           shape: RoundedRectangleBorder(
@@ -113,7 +113,7 @@ class QRKeyTheme {
       // Bottom Navigation Bar
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
         type: BottomNavigationBarType.fixed,
-        selectedItemColor: primaryBlue,
+        selectedItemColor: primarySaffron,
         unselectedItemColor: Colors.grey,
         backgroundColor: Colors.white,
         elevation: 8,
@@ -139,7 +139,7 @@ class QRKeyTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: primaryBlue, width: 2),
+          borderSide: const BorderSide(color: primarySaffron, width: 2),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
@@ -221,7 +221,7 @@ class QRKeyTheme {
   }
   
   static Color getPrimaryAccentColor(double opacity) {
-    return primaryBlue.withOpacity(opacity);
+    return primarySaffron.withOpacity(opacity);
   }
   
   static BoxDecoration getPrimaryGradientDecoration({

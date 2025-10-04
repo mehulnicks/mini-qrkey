@@ -41,7 +41,7 @@ class _CloudFeaturesScreenState extends State<CloudFeaturesScreen> {
         gradient: QRKeyTheme.primaryGradient,
         boxShadow: [
           BoxShadow(
-            color: QRKeyTheme.primaryBlue.withOpacity(0.2),
+            color: QRKeyTheme.primarySaffron.withOpacity(0.2),
             blurRadius: 6,
             offset: const Offset(0, 2),
           ),

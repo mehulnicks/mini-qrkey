@@ -230,11 +230,11 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> with SingleTi
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: QRKeyTheme.primaryBlue.withOpacity(0.1),
+              color: QRKeyTheme.primarySaffron.withOpacity(0.1),
               borderRadius: BorderRadius.circular(16),
             ),
             child: CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation(QRKeyTheme.primaryBlue),
+              valueColor: AlwaysStoppedAnimation(QRKeyTheme.primarySaffron),
               strokeWidth: 3,
             ),
           ),
@@ -244,7 +244,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> with SingleTi
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w600,
-              color: QRKeyTheme.primaryBlue,
+              color: QRKeyTheme.primarySaffron,
             ),
           ),
           const SizedBox(height: 8),
@@ -378,7 +378,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> with SingleTi
                   'Business Overview - $_selectedPeriod',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.bold,
-                    color: QRKeyTheme.primaryBlue,
+                    color: QRKeyTheme.primarySaffron,
                   ),
                 ),
               ),
@@ -482,7 +482,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> with SingleTi
                   'Sales Performance - $_selectedPeriod',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.bold,
-                    color: QRKeyTheme.primaryBlue,
+                    color: QRKeyTheme.primarySaffron,
                   ),
                 ),
               ),
@@ -531,7 +531,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> with SingleTi
                   'Customer Insights - $_selectedPeriod',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.bold,
-                    color: QRKeyTheme.primaryBlue,
+                    color: QRKeyTheme.primarySaffron,
                   ),
                 ),
               ),
@@ -883,13 +883,13 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> with SingleTi
           children: [
             Row(
               children: [
-                Icon(Icons.trending_up, color: QRKeyTheme.primaryBlue, size: 20),
+                Icon(Icons.trending_up, color: QRKeyTheme.primarySaffron, size: 20),
                 SizedBox(width: 8),
                 Text(
                   'Top Selling Items',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.bold,
-                    color: QRKeyTheme.primaryBlue,
+                    color: QRKeyTheme.primarySaffron,
                   ),
                 ),
               ],
@@ -931,7 +931,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> with SingleTi
                         width: 24,
                         height: 24,
                         decoration: BoxDecoration(
-                          color: index < 3 ? [Colors.amber, Colors.grey, Colors.orange][index] : QRKeyTheme.primaryBlue,
+                          color: index < 3 ? [Colors.amber, Colors.grey, Colors.orange][index] : QRKeyTheme.primarySaffron,
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Center(
@@ -1037,13 +1037,13 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> with SingleTi
           children: [
             Row(
               children: [
-                Icon(Icons.bar_chart, color: QRKeyTheme.primaryBlue, size: 20),
+                Icon(Icons.bar_chart, color: QRKeyTheme.primarySaffron, size: 20),
                 SizedBox(width: 8),
                 Text(
                   'Daily Sales Breakdown',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.bold,
-                    color: QRKeyTheme.primaryBlue,
+                    color: QRKeyTheme.primarySaffron,
                   ),
                 ),
               ],
@@ -1077,7 +1077,7 @@ class _AnalyticsScreenState extends ConsumerState<AnalyticsScreen> with SingleTi
                               value: progress,
                               backgroundColor: Colors.grey.shade200,
                               valueColor: AlwaysStoppedAnimation(
-                                revenue > 0 ? QRKeyTheme.primaryBlue : Colors.grey.shade300,
+                                revenue > 0 ? QRKeyTheme.primarySaffron : Colors.grey.shade300,
                               ),
                               minHeight: 8,
                             ),

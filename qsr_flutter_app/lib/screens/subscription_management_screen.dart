@@ -34,7 +34,7 @@ class _SubscriptionManagementScreenState extends ConsumerState<SubscriptionManag
     return Scaffold(
       appBar: AppBar(
         title: const Text('Subscription Management'),
-        backgroundColor: QRKeyTheme.primaryBlue, // Blue color
+        backgroundColor: QRKeyTheme.primarySaffron, // Blue color
         foregroundColor: Colors.white,
       ),
       body: _isLoading
@@ -177,7 +177,7 @@ class _SubscriptionManagementScreenState extends ConsumerState<SubscriptionManag
           value: progress,
           backgroundColor: Colors.grey.shade200,
           valueColor: AlwaysStoppedAnimation<Color>(
-            progress > 0.8 ? Colors.red : QRKeyTheme.primaryBlue, // Blue color
+            progress > 0.8 ? Colors.red : QRKeyTheme.primarySaffron, // Blue color
           ),
         ),
       ],

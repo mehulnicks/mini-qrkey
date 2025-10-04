@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../clean_qsr_main.dart' as original_app;
+import '../clean_qsr_main.dart' as qsr;
 import '../kot_screen.dart';
 import '../services/subscription_service.dart';
 import '../shared/models/subscription_models.dart';
@@ -55,12 +55,9 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
   Widget build(BuildContext context) {
     final currentUser = FirebaseAuth.instance.currentUser;
     
-    return Scaffold(
-      body: _isLoadingSubscription 
-        ? _buildLoadingScreen()
-        : _buildMainContent(currentUser),
-      bottomNavigationBar: _buildBottomNavigation(),
-    );
+    return _isLoadingSubscription 
+      ? _buildLoadingScreen()
+      : _buildQSRSystemScreen();
   }
 
   Widget _buildLoadingScreen() {
@@ -81,47 +78,34 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
   Widget _buildMainContent(User? currentUser) {
     switch (_selectedIndex) {
       case 0:
-        return _buildHomeScreen(currentUser);
+        return _buildDashboardScreen(currentUser);
       case 1:
-        return _buildFeaturesScreen();
-      case 2:
-        return _buildCloudScreen();
-      case 3:
-        return _buildProfileScreen(currentUser);
+        return _buildQSRSystemScreen();
       default:
-        return _buildHomeScreen(currentUser);
+        return _buildDashboardScreen(currentUser);
     }
   }
 
   Widget _buildBottomNavigation() {
     return BottomNavigationBar(
-      type: BottomNavigationBarType.fixed,
       currentIndex: _selectedIndex,
       onTap: (index) => setState(() => _selectedIndex = index),
-      selectedItemColor: QRKeyTheme.primaryBlue, // Main app blue color
+      selectedItemColor: QRKeyTheme.primarySaffron, // Main app blue color
       unselectedItemColor: Colors.grey[600],
       items: const [
         BottomNavigationBarItem(
-          icon: Icon(Icons.home),
-          label: 'Home',
+          icon: Icon(Icons.dashboard),
+          label: 'Dashboard',
         ),
         BottomNavigationBarItem(
           icon: Icon(Icons.restaurant_menu),
-          label: 'Features',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.cloud),
-          label: 'Cloud',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.person),
-          label: 'Profile',
+          label: 'QRKEY System',
         ),
       ],
     );
   }
 
-  Widget _buildHomeScreen(User? currentUser) {
+  Widget _buildDashboardScreen(User? currentUser) {
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -132,11 +116,115 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
             const SizedBox(height: 20),
             _buildSubscriptionBanner(),
             const SizedBox(height: 20),
+            _buildQuickStats(),
+            const SizedBox(height: 20),
             _buildQuickActions(),
             const SizedBox(height: 20),
             _buildRecentActivity(),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildQuickStats() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Quick Stats',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildStatCard(
+                    'Today\'s Orders',
+                    '24',
+                    Icons.receipt_long,
+                    Colors.blue,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildStatCard(
+                    'Revenue',
+                    '\$1,250',
+                    Icons.attach_money,
+                    Colors.green,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildStatCard(
+                    'Pending Orders',
+                    '3',
+                    Icons.pending,
+                    Colors.orange,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildStatCard(
+                    'Menu Items',
+                    '45',
+                    Icons.restaurant_menu,
+                    QRKeyTheme.primarySaffron,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: color, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: color,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -152,7 +240,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               children: [
                 CircleAvatar(
                   radius: 30,
-                  backgroundColor: QRKeyTheme.primaryBlue.withOpacity(0.1), // Blue background
+                  backgroundColor: QRKeyTheme.primarySaffron.withOpacity(0.1), // Blue background
                   child: Text(
                     (currentUser?.displayName?.isNotEmpty == true) 
                         ? currentUser!.displayName!.substring(0, 1).toUpperCase()
@@ -162,7 +250,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
-                      color: QRKeyTheme.primaryBlue, // Blue color
+                      color: QRKeyTheme.primarySaffron, // Blue color
                     ),
                   ),
                 ),
@@ -373,38 +461,25 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               'Quick Actions',
               style: Theme.of(context).textTheme.titleLarge,
             ),
-            const SizedBox(height: 16),
-            GridView.count(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisCount: 2,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-              childAspectRatio: 1.2,
+            const SizedBox(height: 12),
+            Row(
               children: [
-                _buildQuickActionCard(
-                  icon: Icons.restaurant_menu,
-                  title: 'QRKEY System',
-                  subtitle: 'Full restaurant management',
-                  onTap: () => _navigateToQSRSystem(),
+                Expanded(
+                  child: _buildQuickActionCard(
+                    icon: Icons.restaurant_menu,
+                    title: 'QRKEY System',
+                    subtitle: 'Full restaurant management',
+                    onTap: () => setState(() => _selectedIndex = 1),
+                  ),
                 ),
-                _buildQuickActionCard(
-                  icon: Icons.print,
-                  title: 'KOT Screen',
-                  subtitle: 'Kitchen order tickets',
-                  onTap: () => _navigateToKOTScreen(),
-                ),
-                _buildQuickActionCard(
-                  icon: Icons.cloud,
-                  title: 'Cloud Features',
-                  subtitle: 'Sync and backup',
-                  onTap: () => _navigateToCloudFeatures(),
-                ),
-                _buildQuickActionCard(
-                  icon: Icons.analytics,
-                  title: 'Analytics',
-                  subtitle: 'Sales insights',
-                  onTap: () => _showAnalyticsFeature(),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildQuickActionCard(
+                    icon: Icons.print,
+                    title: 'KOT Screen',
+                    subtitle: 'Kitchen orders only',
+                    onTap: () => _navigateToKOTScreen(),
+                  ),
                 ),
               ],
             ),
@@ -433,14 +508,14 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
             children: [
               Icon(
                 icon,
-                size: 32,
-                color: canAccess ? QRKeyTheme.primaryBlue : Colors.grey.shade400, // Blue color
+                size: 28,
+                color: canAccess ? QRKeyTheme.primarySaffron : Colors.grey.shade400, // Blue color
               ),
               const SizedBox(height: 8),
               Text(
                 title,
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: 13,
                   fontWeight: FontWeight.bold,
                   color: canAccess ? Colors.black87 : Colors.grey.shade500,
                 ),
@@ -450,11 +525,28 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               Text(
                 subtitle,
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: 11,
                   color: canAccess ? Colors.grey.shade600 : Colors.grey.shade400,
                 ),
                 textAlign: TextAlign.center,
               ),
+              if (!canAccess)
+                Container(
+                  margin: const EdgeInsets.only(top: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade100,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    'Premium',
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: Colors.orange.shade700,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
@@ -493,7 +585,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               'New menu item added',
               '15 minutes ago',
               Icons.restaurant_menu,
-              QRKeyTheme.primaryBlue, // Blue color
+              QRKeyTheme.primarySaffron, // Blue color
             ),
             _buildActivityCard(
               'KOT printed for Table 5',
@@ -547,23 +639,9 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
     );
   }
 
-  Widget _buildFeaturesScreen() {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Features',
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 16),
-            _buildFeaturesList(),
-          ],
-        ),
-      ),
-    );
+  // Navigation methods
+  void _navigateToQSRSystem() {
+    setState(() => _selectedIndex = 1);
   }
 
   Widget _buildFeaturesList() {
@@ -590,7 +668,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
           child: ListTile(
             leading: Icon(
               feature.icon,
-              color: canAccess ? QRKeyTheme.primaryBlue : Colors.grey.shade400, // Blue color
+              color: canAccess ? QRKeyTheme.primarySaffron : Colors.grey.shade400, // Blue color
             ),
             title: Text(
               feature.title,
@@ -619,6 +697,238 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
     return const CloudFeaturesScreen();
   }
 
+  Widget _buildQSRSystemScreen() {
+    // Directly return the QSR MainScreen without MaterialApp wrapper
+    return qsr.MainScreen();
+  }
+
+  Widget _buildAnalyticsScreen() {
+    if (_subscription?.plan == SubscriptionPlan.free) {
+      return _buildPremiumFeatureScreen(
+        'Analytics',
+        'Advanced analytics and reporting features are available with premium subscription.',
+        Icons.analytics,
+      );
+    }
+    
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Analytics',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 16),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  children: [
+                    Icon(
+                      Icons.analytics,
+                      size: 64,
+                      color: QRKeyTheme.primarySaffron,
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Advanced Analytics',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Real-time sales reports, customer insights, and business intelligence features are coming soon!',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 16),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPremiumFeatureScreen(String featureName, String description, IconData icon) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 80,
+              color: Colors.grey.shade400,
+            ),
+            const SizedBox(height: 24),
+            Text(
+              '$featureName Feature',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                color: Colors.grey.shade600,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              description,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey.shade600,
+              ),
+            ),
+            const SizedBox(height: 32),
+            ElevatedButton.icon(
+              onPressed: _navigateToSubscriptionManagement,
+              icon: const Icon(Icons.star),
+              label: const Text('Upgrade to Premium'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSettingsScreen(User? currentUser) {
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Settings',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 20),
+            
+            // Profile Section
+            _buildSettingsSection(
+              title: 'Profile',
+              children: [
+                _buildSettingsHeader(currentUser),
+                const SizedBox(height: 16),
+                _buildSettingsTile(
+                  icon: Icons.person_outline,
+                  title: 'Edit Profile',
+                  subtitle: 'Update your personal information',
+                  onTap: () => _showComingSoon('Edit Profile'),
+                ),
+              ],
+            ),
+            
+            const SizedBox(height: 20),
+            
+            // Subscription Section
+            _buildSettingsSection(
+              title: 'Subscription',
+              children: [
+                _buildSubscriptionStatusTile(),
+                _buildSettingsTile(
+                  icon: Icons.star_outline,
+                  title: 'Manage Subscription',
+                  subtitle: 'View plans and billing information',
+                  onTap: _navigateToSubscriptionManagement,
+                ),
+                _buildSettingsTile(
+                  icon: Icons.analytics_outlined,
+                  title: 'Usage Statistics',
+                  subtitle: 'View your app usage data',
+                  onTap: () => _showUsageStats(),
+                ),
+              ],
+            ),
+            
+            const SizedBox(height: 20),
+            
+            // App Settings Section
+            _buildSettingsSection(
+              title: 'App Settings',
+              children: [
+                _buildSettingsTile(
+                  icon: Icons.notifications_outlined,
+                  title: 'Notifications',
+                  subtitle: 'Manage notification preferences',
+                  onTap: () => _showComingSoon('Notifications'),
+                ),
+                _buildSettingsTile(
+                  icon: Icons.backup_outlined,
+                  title: 'Backup & Sync',
+                  subtitle: 'Manage cloud backup settings',
+                  onTap: () => _navigateToCloudFeatures(),
+                  premium: _subscription?.plan == SubscriptionPlan.free,
+                ),
+                _buildSettingsTile(
+                  icon: Icons.security_outlined,
+                  title: 'Privacy & Security',
+                  subtitle: 'App security and privacy settings',
+                  onTap: () => _showComingSoon('Privacy & Security'),
+                ),
+              ],
+            ),
+            
+            const SizedBox(height: 20),
+            
+            // Support Section
+            _buildSettingsSection(
+              title: 'Support',
+              children: [
+                _buildSettingsTile(
+                  icon: Icons.help_outline,
+                  title: 'Help Center',
+                  subtitle: 'Get help and support',
+                  onTap: () => _showComingSoon('Help Center'),
+                ),
+                _buildSettingsTile(
+                  icon: Icons.bug_report_outlined,
+                  title: 'Report Issue',
+                  subtitle: 'Report bugs or issues',
+                  onTap: () => _showComingSoon('Report Issue'),
+                ),
+                _buildSettingsTile(
+                  icon: Icons.info_outline,
+                  title: 'About',
+                  subtitle: 'App version and information',
+                  onTap: () => _showAboutDialog(),
+                ),
+              ],
+            ),
+            
+            const SizedBox(height: 20),
+            
+            // Logout Section
+            _buildSettingsSection(
+              title: 'Account',
+              children: [
+                _buildSettingsTile(
+                  icon: Icons.logout,
+                  title: 'Logout',
+                  subtitle: 'Sign out from your account',
+                  onTap: _showLogoutDialog,
+                  destructive: true,
+                ),
+              ],
+            ),
+            
+            const SizedBox(height: 40),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildProfileScreen(User? currentUser) {
     return SafeArea(
       child: SingleChildScrollView(
@@ -644,7 +954,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
           children: [
             CircleAvatar(
               radius: 40,
-              backgroundColor: QRKeyTheme.primaryBlue.withOpacity(0.1), // Blue background
+              backgroundColor: QRKeyTheme.primarySaffron.withOpacity(0.1), // Blue background
               child: Text(
                 (currentUser?.displayName?.isNotEmpty == true) 
                     ? currentUser!.displayName!.substring(0, 1).toUpperCase()
@@ -654,7 +964,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                 style: TextStyle(
                   fontSize: 32,
                   fontWeight: FontWeight.bold,
-                  color: QRKeyTheme.primaryBlue, // Blue color
+                  color: QRKeyTheme.primarySaffron, // Blue color
                 ),
               ),
             ),
@@ -774,11 +1084,244 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
     );
   }
 
-  // Navigation methods
-  void _navigateToQSRSystem() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => original_app.QSRApp()),
+  // Settings screen helper methods
+  Widget _buildSettingsSection({
+    required String title,
+    required List<Widget> children,
+  }) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: QRKeyTheme.primarySaffron,
+              ),
+            ),
+            const SizedBox(height: 12),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSettingsHeader(User? currentUser) {
+    return Row(
+      children: [
+        CircleAvatar(
+          radius: 30,
+          backgroundColor: QRKeyTheme.primarySaffron.withOpacity(0.1),
+          child: Text(
+            (currentUser?.displayName?.isNotEmpty == true) 
+                ? currentUser!.displayName!.substring(0, 1).toUpperCase()
+                : (currentUser?.email?.isNotEmpty == true)
+                    ? currentUser!.email!.substring(0, 1).toUpperCase() 
+                    : 'U',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: QRKeyTheme.primarySaffron,
+            ),
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                currentUser?.displayName ?? currentUser?.email ?? 'Restaurant Manager',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              Text(
+                currentUser?.email ?? 'manager@restaurant.com',
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+        ),
+        _buildPlanBadge(),
+      ],
+    );
+  }
+
+  Widget _buildSubscriptionStatusTile() {
+    if (_subscription == null) return const SizedBox.shrink();
+    
+    Color statusColor = _subscription!.plan == SubscriptionPlan.free 
+        ? Colors.grey 
+        : Colors.green;
+    
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: statusColor.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: statusColor.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            _subscription!.plan == SubscriptionPlan.free ? Icons.star_border : Icons.star,
+            color: statusColor,
+            size: 24,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${_subscription!.plan.displayName} Plan',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                    color: statusColor,
+                  ),
+                ),
+                if (_subscription!.plan != SubscriptionPlan.free && _subscription!.daysRemaining != null)
+                  Text(
+                    '${_subscription!.daysRemaining} days remaining',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: statusColor,
+                    ),
+                  ),
+                if (_subscription!.plan == SubscriptionPlan.free)
+                  Text(
+                    'Upgrade to unlock premium features',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: statusColor,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSettingsTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+    bool premium = false,
+    bool destructive = false,
+  }) {
+    Color iconColor = destructive 
+        ? Colors.red.shade600 
+        : premium 
+            ? Colors.grey.shade400 
+            : QRKeyTheme.primarySaffron;
+    
+    Color textColor = destructive 
+        ? Colors.red.shade600 
+        : premium 
+            ? Colors.grey.shade500 
+            : Colors.black87;
+
+    return ListTile(
+      leading: Icon(icon, color: iconColor),
+      title: Text(
+        title,
+        style: TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w500,
+          color: textColor,
+        ),
+      ),
+      subtitle: Row(
+        children: [
+          Expanded(
+            child: Text(
+              subtitle,
+              style: TextStyle(
+                fontSize: 14,
+                color: premium ? Colors.grey.shade400 : Colors.grey.shade600,
+              ),
+            ),
+          ),
+          if (premium)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade100,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                'Premium',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Colors.orange.shade700,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+        ],
+      ),
+      trailing: Icon(
+        Icons.arrow_forward_ios,
+        size: 16,
+        color: Colors.grey.shade400,
+      ),
+      onTap: premium ? () => _showPremiumRequired() : onTap,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
+    );
+  }
+
+  void _showUsageStats() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Usage Statistics'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (_usageStats != null) ...[
+              Text('Orders this month: ${_usageStats!['ordersThisMonth'] ?? 0}'),
+              Text('Menu items: ${_usageStats!['menuItemsCount'] ?? 0}'),
+              Text('Total revenue: \$${_usageStats!['totalRevenue'] ?? 0}'),
+            ] else
+              const Text('No usage data available yet.'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAboutDialog() {
+    showAboutDialog(
+      context: context,
+      applicationName: 'QRKEY',
+      applicationVersion: '1.0.0',
+      applicationIcon: const QRKeyLogo(width: 64, height: 64),
+      children: [
+        const Text('Enhanced Restaurant Management System'),
+        const SizedBox(height: 8),
+        const Text('Built with Flutter and Firebase'),
+      ],
     );
   }
 
@@ -793,7 +1336,10 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
     if (_subscription?.plan == SubscriptionPlan.free) {
       _showPremiumRequired();
     } else {
-      setState(() => _selectedIndex = 2);
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const CloudFeaturesScreen()),
+      );
     }
   }
 
@@ -852,11 +1398,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
   }
 
   void _showAnalyticsFeature() {
-    if (_subscription?.plan == SubscriptionPlan.free) {
-      _showPremiumRequired();
-    } else {
-      _showComingSoon('Analytics');
-    }
+    setState(() => _selectedIndex = 2);
   }
 
   void _showComingSoon(String feature) {
