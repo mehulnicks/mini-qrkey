@@ -115,22 +115,22 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
   Widget _buildDashboardScreen(User? currentUser) {
     return SafeArea(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildHeader(currentUser),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             // Quick metrics overview
             const QuickMetricsWidget(),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             _buildQuickStats(),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             // Subscription Metrics Widget (compact version for overview)
             const SubscriptionMetricsWidget(compact: true),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             _buildQuickActions(),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             _buildRecentActivity(),
           ],
         ),
@@ -141,7 +141,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
   Widget _buildQuickStats() {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -149,7 +149,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               'Quick Stats',
               style: Theme.of(context).textTheme.titleLarge,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             Row(
               children: [
                 Expanded(
@@ -160,7 +160,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                     Colors.blue,
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
                 Expanded(
                   child: _buildStatCard(
                     'Revenue',
@@ -171,7 +171,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Row(
               children: [
                 Expanded(
@@ -182,7 +182,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                     Colors.orange,
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
                 Expanded(
                   child: _buildStatCard(
                     'Menu Items',
@@ -201,7 +201,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
 
   Widget _buildStatCard(String title, String value, IconData icon, Color color) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(8),
@@ -212,13 +212,13 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
         children: [
           Row(
             children: [
-              Icon(icon, color: color, size: 18),
-              const SizedBox(width: 6),
+              Icon(icon, color: color, size: 16),
+              const SizedBox(width: 4),
               Expanded(
                 child: Text(
                   title,
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: 10,
                     color: color,
                     fontWeight: FontWeight.w500,
                   ),
@@ -226,11 +226,11 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           Text(
             value,
             style: TextStyle(
-              fontSize: 18,
+              fontSize: 16,
               fontWeight: FontWeight.bold,
               color: color,
             ),
@@ -243,14 +243,14 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
   Widget _buildHeader(User? currentUser) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
                 CircleAvatar(
-                  radius: 24,
+                  radius: 20,
                   backgroundColor: QRKeyTheme.primarySaffron.withOpacity(0.1), // Blue background
                   child: Text(
                     (currentUser?.displayName?.isNotEmpty == true) 
@@ -259,20 +259,20 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                             ? currentUser!.email!.substring(0, 1).toUpperCase() 
                             : 'U',
                     style: TextStyle(
-                      fontSize: 20,
+                      fontSize: 16,
                       fontWeight: FontWeight.bold,
                       color: QRKeyTheme.primarySaffron, // Blue color
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         'Welcome back!',
-                        style: Theme.of(context).textTheme.titleLarge,
+                        style: Theme.of(context).textTheme.titleMedium,
                       ),
                       Text(
                         currentUser?.displayName ?? 
@@ -280,7 +280,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                         'Restaurant Manager',
                         style: TextStyle(
                           color: Colors.grey.shade600,
-                          fontSize: 14,
+                          fontSize: 12,
                         ),
                       ),
                     ],
@@ -290,12 +290,12 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                   children: [
                     // Compact Subscription Widget
                     const CompactSubscriptionWidget(),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     IconButton(
                       icon: Icon(
                         Icons.bug_report,
                         color: QRKeyTheme.primarySaffron,
-                        size: 18,
+                        size: 16,
                       ),
                       onPressed: () {
                         Navigator.push(
@@ -486,7 +486,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
   Widget _buildQuickActions() {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -494,7 +494,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               'Quick Actions',
               style: Theme.of(context).textTheme.titleLarge,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             Row(
               children: [
                 Expanded(
@@ -590,7 +590,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
   Widget _buildRecentActivity() {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -607,7 +607,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
             _buildActivityCard(
               'Order #1234 completed',
               '2 minutes ago',
@@ -837,7 +837,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
   Widget _buildSettingsScreen(User? currentUser) {
     return SafeArea(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -845,14 +845,14 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               'Settings',
               style: Theme.of(context).textTheme.headlineSmall,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             
             // Profile Section
             _buildSettingsSection(
               title: 'Profile',
               children: [
                 _buildSettingsHeader(currentUser),
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 _buildSettingsTile(
                   icon: Icons.person_outline,
                   title: 'Edit Profile',
@@ -862,7 +862,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               ],
             ),
             
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
             
             // Subscription Section
             _buildSettingsSection(
@@ -884,7 +884,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               ],
             ),
             
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
             
             // Analytics & Reports Section
             _buildSettingsSection(
@@ -914,7 +914,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               ],
             ),
             
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
             
             // App Settings Section
             _buildSettingsSection(
@@ -942,7 +942,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               ],
             ),
             
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
             
             // Support Section
             _buildSettingsSection(
@@ -969,7 +969,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               ],
             ),
             
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
             
             // Logout Section
             _buildSettingsSection(
@@ -985,7 +985,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               ],
             ),
             
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
           ],
         ),
       ),
@@ -1154,7 +1154,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
   }) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1166,7 +1166,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                 color: QRKeyTheme.primarySaffron,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             ...children,
           ],
         ),
@@ -1178,7 +1178,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
     return Row(
       children: [
         CircleAvatar(
-          radius: 30,
+          radius: 24,
           backgroundColor: QRKeyTheme.primarySaffron.withOpacity(0.1),
           child: Text(
             (currentUser?.displayName?.isNotEmpty == true) 
@@ -1187,13 +1187,13 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                     ? currentUser!.email!.substring(0, 1).toUpperCase() 
                     : 'U',
             style: TextStyle(
-              fontSize: 20,
+              fontSize: 18,
               fontWeight: FontWeight.bold,
               color: QRKeyTheme.primarySaffron,
             ),
           ),
         ),
-        const SizedBox(width: 16),
+        const SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1201,7 +1201,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
               Text(
                 currentUser?.displayName ?? currentUser?.email ?? 'Restaurant Manager',
                 style: const TextStyle(
-                  fontSize: 16,
+                  fontSize: 15,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -1209,7 +1209,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                 currentUser?.email ?? 'manager@restaurant.com',
                 style: TextStyle(
                   color: Colors.grey.shade600,
-                  fontSize: 14,
+                  fontSize: 13,
                 ),
               ),
             ],
@@ -1228,7 +1228,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
         : Colors.green;
     
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: statusColor.withOpacity(0.1),
         borderRadius: BorderRadius.circular(8),
@@ -1239,9 +1239,9 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
           Icon(
             _subscription!.plan == SubscriptionPlan.free ? Icons.star_border : Icons.star,
             color: statusColor,
-            size: 24,
+            size: 20,
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1249,7 +1249,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                 Text(
                   '${_subscription!.plan.displayName} Plan',
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 14,
                     fontWeight: FontWeight.w500,
                     color: statusColor,
                   ),
@@ -1258,7 +1258,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                   Text(
                     '${_subscription!.daysRemaining} days remaining',
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: 11,
                       color: statusColor,
                     ),
                   ),
@@ -1266,7 +1266,7 @@ class _EnhancedMainScreenState extends ConsumerState<EnhancedMainScreen> {
                   Text(
                     'Upgrade to unlock premium features',
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: 11,
                       color: statusColor,
                     ),
                   ),

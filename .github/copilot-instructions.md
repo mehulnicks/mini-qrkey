@@ -1,6 +1,36 @@
 # QRKEY Flutter App - AI Coding Agent Instructions
 
+## 📊 Analytics & Business Intelligence (FULLY IMPLEMENTED)
+
+### **Sales Reports Screen** (`lib/screens/sales_reports_screen.dart`)
+- ✅ **Complete Implementation**: Daily, weekly, monthly revenue analytics
+- ✅ **Interactive Charts**: Revenue trends, order counts, average order value
+- ✅ **Real Data Integration**: Loads actual order data from SharedPreferences
+- ✅ **Export Functions**: Generate and share reports
+- ✅ **Premium Access Control**: Automatic access for mehulnicks@gmail.com
+
+### **Business Insights Screen** (`lib/screens/business_insights_screen.dart`)
+- ✅ **AI-Powered Analytics**: Customer behavior analysis, menu performance
+- ✅ **Smart Recommendations**: Peak hours, popular items, optimization suggestions
+- ✅ **Real-Time Data**: Live customer insights and business intelligence
+- ✅ **Interactive Dashboard**: Multiple tabs with comprehensive metrics
+
+### **Live Dashboard Screen** (`lib/screens/live_dashboard_screen.dart`)
+- ✅ **Real-Time Monitoring**: Live order tracking and instant metrics
+- ✅ **Animated Charts**: Real-time data visualization with animations
+- ✅ **Auto-Refresh**: 30-second intervals for live updates
+- ✅ **Performance Metrics**: Today's summary, revenue, order status
+
+### **Subscription Management Screen** (`lib/screens/subscription_management_screen.dart`)
+- ✅ **Complete Plan Management**: Free, Premium, Enterprise tiers
+- ✅ **Usage Analytics**: Current usage vs limits, feature availability
+- ✅ **Billing History**: Transaction records and plan changes
+- ✅ **Auto-Upgrade System**: Special handling for mehulnicks@gmail.com
+
+**Navigation Access**: All features accessible via Dashboard → Settings → Analytics & Reports section
+
 ## 🎯 Project Overview
+
 QRKEY is a comprehensive Quick Service Restaurant (QSR) management system with hybrid cloud architecture featuring Firebase authentication, Supabase integration, and a sophisticated freemium subscription model. The app uses **consistent saffron theming** (`#FF9933`) and supports bilingual localization (English/Hindi).
 
 ## 🏗️ Architecture Patterns
@@ -19,11 +49,15 @@ The primary app uses a **simplified 2-tab structure**:
 - **Tab 0**: Dashboard - Quick metrics, subscription status, recent activity, quick actions
 - **Tab 1**: QSR System - Complete restaurant management (embedded `clean_qsr_main.dart`)
 
-**Settings Integration**: All configuration is accessed through the QSR System's Settings tab, which includes:
-- Analytics & Reports (Premium features with subscription gating)
-- Subscription Management 
-- Profile settings
-- App configuration
+**Settings Integration**: All configuration is accessed through the Dashboard tab's Settings, which includes:
+- **Analytics & Reports** (Premium features - FULLY IMPLEMENTED):
+  - Sales Reports (`lib/screens/sales_reports_screen.dart`) - Complete analytics with charts and insights
+  - Business Insights (`lib/screens/business_insights_screen.dart`) - AI-powered business intelligence
+  - Live Dashboard (`lib/screens/live_dashboard_screen.dart`) - Real-time monitoring
+- **Subscription Management** (`lib/screens/subscription_management_screen.dart`) - Complete plan management
+- Profile settings and app configuration
+
+**IMPORTANT**: Analytics features are **fully implemented and working** - not "Coming Soon". For mehulnicks@gmail.com, premium features are automatically accessible due to special user auto-upgrade.
 
 ### Hybrid State Management & Cloud Integration
 - **Riverpod** for reactive state management with providers
@@ -119,6 +153,12 @@ StreamBuilder<User?>(
 **Tab Structure (Current)**:
 - Tab 0: Dashboard (Quick metrics, subscription status, recent activity)
 - Tab 1: QSR System (complete restaurant management embedded)
+
+**Analytics & Reports (FULLY IMPLEMENTED)**:
+- `lib/screens/sales_reports_screen.dart` - Sales analytics with charts, trends, revenue tracking
+- `lib/screens/business_insights_screen.dart` - AI-powered insights, customer analytics, menu performance
+- `lib/screens/live_dashboard_screen.dart` - Real-time monitoring, live orders, instant metrics
+- `lib/screens/subscription_management_screen.dart` - Complete subscription plan management
 
 **QSR System Internal Navigation** (5 tabs within Tab 1):
 - Dashboard: Business overview with today's summary
