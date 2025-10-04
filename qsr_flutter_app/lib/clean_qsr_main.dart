@@ -5645,9 +5645,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          l10n(ref, 'dashboard'),
-          style: const TextStyle(
+        title: const Text(
+          'Dashboard', // Keep dashboard title in English
+          style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.bold,
             letterSpacing: 0.5,
@@ -5933,7 +5933,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 const Icon(Icons.analytics, color: Color(0xFFFF9933), size: 24),
                 const SizedBox(width: 8),
                 Text(
-                  l10n(ref, 'today_summary'),
+                  "Today's Summary", // Keep title in English
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     color: const Color(0xFFFF9933),
                     fontWeight: FontWeight.bold,
@@ -5946,7 +5946,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               children: [
                 Expanded(
                   child: _buildStatCard(
-                    'today_orders',
+                    "Today's Orders", // English title
                     '${todaysOrders.length}',
                     Icons.shopping_bag, // Indian shopping icon
                     Colors.blue,
@@ -5956,7 +5956,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: _buildStatCard(
-                    'today_revenue',
+                    "Today's Revenue", // English title
                     formatIndianCurrency(todaysRevenue),
                     Icons.currency_rupee, // Indian Rupee icon
                     Colors.green,
@@ -5970,7 +5970,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               children: [
                 Expanded(
                   child: _buildStatCard(
-                    'pending_orders',
+                    "Pending Orders", // English title
                     '${pendingOrders.length}',
                     Icons.hourglass_top, // Waiting/pending icon
                     Colors.orange,
@@ -5980,7 +5980,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: _buildStatCard(
-                    'menu_items',
+                    "Menu Items", // English title
                     '${menuItems.length}',
                     Icons.restaurant, // Indian restaurant icon
                     const Color(0xFFFF9933),
@@ -5995,7 +5995,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  Widget _buildStatCard(String titleKey, String value, IconData icon, Color color, WidgetRef ref) {
+  Widget _buildStatCard(String title, String value, IconData icon, Color color, WidgetRef ref) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -6026,7 +6026,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  l10n(ref, titleKey),
+                  title, // Use direct English title
                   style: TextStyle(
                     fontSize: 12,
                     color: color.withOpacity(0.8),
@@ -6065,7 +6065,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 const Icon(Icons.flash_on, color: Color(0xFFFF9933), size: 24),
                 const SizedBox(width: 8),
                 Text(
-                  'त्वरित कार्य (Quick Actions)',
+                  'Quick Actions', // Keep title in English
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     color: const Color(0xFFFF9933),
                     fontWeight: FontWeight.bold,
@@ -6079,8 +6079,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 Expanded(
                   child: _buildQuickActionCard(
                     icon: Icons.shopping_cart,
-                    title: 'नया ऑर्डर',
-                    subtitle: 'New Order',
+                    title: 'New Order', // English title
+                    subtitle: 'Take customer orders',
                     description: 'Take customer orders',
                     onTap: () => _navigateToTab(1), // Navigate to Menu tab
                   ),
@@ -6089,8 +6089,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 Expanded(
                   child: _buildQuickActionCard(
                     icon: Icons.kitchen,
-                    title: 'रसोई डिस्प्ले',
-                    subtitle: 'KOT Screen',
+                    title: 'KOT Screen', // English title
+                    subtitle: 'Kitchen orders',
                     description: 'Kitchen orders',
                     onTap: () => _navigateToTab(3), // Navigate to KOT tab
                   ),
@@ -6103,8 +6103,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 Expanded(
                   child: _buildQuickActionCard(
                     icon: Icons.restaurant_menu,
-                    title: 'मेनू प्रबंधन',
-                    subtitle: 'Menu Management',
+                    title: 'Menu Management', // English title
+                    subtitle: 'Add/Edit items',
                     description: 'Add/Edit items',
                     onTap: () => _navigateToTab(2), // Navigate to Management tab
                   ),
@@ -6113,8 +6113,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 Expanded(
                   child: _buildQuickActionCard(
                     icon: Icons.receipt_long,
-                    title: 'बिल हिस्ट्री',
-                    subtitle: 'Order History',
+                    title: 'Order History', // English title
+                    subtitle: 'View past orders',
                     description: 'View past orders',
                     onTap: () => _navigateToTab(4), // Navigate to Orders tab
                   ),
@@ -6144,7 +6144,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 const Icon(Icons.history, color: Color(0xFFFF9933), size: 24),
                 const SizedBox(width: 8),
                 Text(
-                  'हाल की गतिविधि (Recent Activity)',
+                  'Recent Activity', // Keep title in English
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     color: const Color(0xFFFF9933),
                     fontWeight: FontWeight.bold,
@@ -6154,7 +6154,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 TextButton.icon(
                   onPressed: () => _navigateToTab(4), // Navigate to Orders tab
                   icon: const Icon(Icons.arrow_forward_ios, size: 14),
-                  label: const Text('सभी देखें'),
+                  label: const Text('View All'), // Keep button text in English
                   style: TextButton.styleFrom(
                     foregroundColor: const Color(0xFFFF9933),
                   ),
