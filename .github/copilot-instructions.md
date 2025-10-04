@@ -1,39 +1,49 @@
 # QRKEY Flutter App - AI Coding Agent Instructions
 
 ## 🎯 Project Overview
-QRKEY is a comprehensive Quick Service Restaurant (QSR) management system with hybrid cloud architecture. The app has been **completely rebranded from "QSR System" to "QRKEY"** with consistent blue theming (`#1976D2`) to match the main app.
+QRKEY is a comprehensive Quick Service Restaurant (QSR) management system with hybrid cloud architecture featuring Firebase authentication, Supabase integration, and a sophisticated freemium subscription model. The app uses **consistent saffron theming** (`#FF9933`) and supports bilingual localization (English/Hindi).
 
 ## 🏗️ Architecture Patterns
 
 ### Multi-Entry Point Architecture
 The app has **multiple main files** for different deployment scenarios:
 - `lib/main.dart` - **Primary entry point** with QRKEY branding, Firebase + Supabase integration
-- `lib/clean_qsr_main.dart` - Standalone QSR system (3,366 lines, single-file architecture)
+- `lib/clean_qsr_main.dart` - Monolithic QSR system (15,000+ lines, complete standalone implementation)
 - `lib/firebase_main.dart` - Firebase-only integration
 - `lib/main_with_supabase.dart` - Supabase-focused integration
 
 **Key Pattern**: Always use `flutter run -t lib/main.dart` unless specifically testing other versions.
 
-### Hybrid State Management
-- **Riverpod** for reactive state management
-- **Firebase Auth** for user authentication with Google Sign-in
+### Hybrid State Management & Cloud Integration
+- **Riverpod** for reactive state management with providers
+- **Firebase Auth** for user authentication (Google Sign-in, email/password, anonymous)
 - **Supabase** for real-time database (optional, graceful fallback)
-- **SharedPreferences** for local persistence
+- **SharedPreferences** for local persistence and subscription state
 
 ### Freemium Subscription System
 Central service: `lib/services/subscription_service.dart`
 ```dart
-// Usage pattern throughout the app
-final canAccess = SubscriptionService.isPremiumUser;
-if (!canAccess) {
-  return PremiumUpgradeDialog(feature: SubscriptionFeature.analytics);
+// Critical validation pattern used throughout
+final validation = await SubscriptionService.validateAddMenuItem();
+if (!validation.isValid) {
+  return PremiumUpgradeDialog(feature: validation.requiredFeature);
 }
+```
+
+**Subscription Plans**: Free (10 menu items), Premium (unlimited), Enterprise (API access)
+
+### Comprehensive Localization System
+**Pattern**: `lib/clean_qsr_main.dart` contains complete localization implementation
+```dart
+// Usage: l10n(ref, 'key') - respects user language preference
+final currentLanguage = ref.watch(currentLanguageProvider); // 'en' or 'hi'
+final text = l10n(ref, 'dashboard'); // Returns "Dashboard" or "डैशबोर्ड"
 ```
 
 ## 🎨 Theme System
 **Centralized theming**: `lib/core/theme/qrkey_theme.dart`
-- **Primary**: `QRKeyTheme.primaryBlue` (#1976D2) - matches main app
-- **Never use saffron colors** - fully migrated from #FF9933 to blue theme
+- **Primary**: `QRKeyTheme.primarySaffron` (#FF9933) - consistent saffron theme
+- **Never use blue colors** - app uses saffron/orange branding consistently
 - Import pattern: `import '../core/theme/qrkey_theme.dart';`
 
 ## 🚀 Essential Development Commands
@@ -47,13 +57,8 @@ flutter run -d 000783488002925 -t lib/main.dart # Android (replace device ID)
 
 ### Development Hot Reload
 - `r` - Hot reload (preserves state)
-- `R` - Hot restart (resets state)
-- Essential for testing subscription flows and theme changes
-
-### Database Code Generation (if using Drift)
-```bash
-flutter packages pub run build_runner build --delete-conflicting-outputs
-```
+- `R` - Hot restart (resets state) 
+- Essential for testing subscription flows and localization changes
 
 ## 🔧 Integration Patterns
 
@@ -66,12 +71,11 @@ await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 ### Supabase Configuration
 Config file: `lib/core/config/supabase_config.dart` (replace credentials for production)
 ```dart
-// Graceful fallback pattern
+// Graceful fallback pattern - app continues without cloud services
 try {
   await SupabaseConfig.initialize();
 } catch (e) {
   print('Supabase initialization error: $e');
-  // App continues with local functionality
 }
 ```
 
@@ -89,35 +93,29 @@ StreamBuilder<User?>(
 ## 🏪 Component Structure
 
 ### Screen Architecture
-- `lib/screens/enhanced_main_screen.dart` - **Main app interface** with 4-tab navigation
-- **Tab 0**: QSR System (integrated `clean_qsr_main.dart`)
-- **Tab 1**: KOT Screen (Kitchen Order Tickets)
-- **Tab 2**: Premium Demo/Analytics (subscription-gated)
-- **Tab 3**: Profile/Subscription Management
+- `lib/main.dart` - **Primary app entry** with enhanced authentication
+- `lib/screens/enhanced_main_screen.dart` - **Main interface** with 4-tab navigation
+- `lib/clean_qsr_main.dart` - **Complete QSR system** (15,000+ lines, integrated as Tab 0)
+
+**Tab Structure**:
+- Tab 0: QSR System (complete restaurant management)
+- Tab 1: KOT Screen (Kitchen Order Tickets)
+- Tab 2: Premium Analytics (subscription-gated)
+- Tab 3: Profile/Subscription Management
 
 ### Reusable Components
 - `lib/widgets/qrkey_logo.dart` - Logo system with QR fallbacks
 - `lib/shared/widgets/premium_upgrade_widgets.dart` - Subscription prompts
-- Feature availability controlled by `SubscriptionService.currentPlan`
-
-## 📱 Platform-Specific Considerations
-
-### Android Configuration
-- Bluetooth permissions in `android/app/src/main/AndroidManifest.xml`
-- App name: "QRKEY" (updated from "QSR System")
-- Thermal printer support via ESC/POS commands
-
-### Development Testing
-- Always test subscription flows: Free → Premium → Enterprise
-- Firebase auth requires Google Services setup
-- Supabase features need valid credentials in config
+- `lib/services/subscription_service.dart` - Feature gating and validation
 
 ## 🎯 Critical Patterns
 
-### Error Handling
+### Freemium Feature Gating
 ```dart
-// Subscription validation pattern
-final validation = await SubscriptionService.validateAddMenuItem();
+// Standard validation before premium features
+final validation = await SubscriptionService.validateFeatureAccess(
+  SubscriptionFeature.analyticsReports
+);
 if (!validation.isValid) {
   showUpgradeDialog(context, validation.requiredFeature);
   return;
@@ -127,18 +125,25 @@ if (!validation.isValid) {
 ### Theme Consistency
 ```dart
 // Always use theme system, never hardcode colors
-selectedItemColor: QRKeyTheme.primaryBlue,
-backgroundColor: QRKeyTheme.primaryBlue.withOpacity(0.1),
+color: QRKeyTheme.primarySaffron,
+backgroundColor: QRKeyTheme.primarySaffron.withOpacity(0.1),
 ```
 
-### Feature Gating
+### Localization Pattern
 ```dart
-// Standard pattern for premium features
-Widget _buildPremiumFeature() {
-  if (!SubscriptionService.isPremiumUser) {
-    return PremiumFeaturePlaceholder(feature: SubscriptionFeature.analytics);
-  }
-  return ActualFeatureWidget();
+// Dynamic language based on user settings
+Text(l10n(ref, 'dashboard')), // Returns localized text
+// Dashboard uses l10n keys: 'today_summary', 'today_orders', etc.
+```
+
+### Error Handling & Fallbacks
+```dart
+// Graceful degradation for cloud services
+try {
+  await cloudOperation();
+} catch (e) {
+  print('Cloud error: $e');
+  // Continue with local functionality
 }
 ```
 
@@ -148,19 +153,32 @@ Widget _buildPremiumFeature() {
 - "Firebase initialized successfully"
 - "Supabase initialized successfully" 
 - "Subscription service initialized"
+- "User authenticated: [username]"
 
 ### Common Issues
-- **Color inconsistency**: Ensure all UI uses `QRKeyTheme.primaryBlue` not saffron
+- **Theme inconsistency**: Ensure all UI uses `QRKeyTheme.primarySaffron` (saffron theme)
 - **Subscription state**: Always check `SubscriptionService.currentPlan` in premium features
+- **Localization**: Use `l10n(ref, 'key')` instead of hardcoded bilingual text
 - **Authentication**: Firebase auth state changes drive main navigation flow
 
-### Testing Subscription Features
-Use `lib/screens/subscription_management_screen.dart` to test plan changes and feature availability without actual payments.
+### Testing Freemium Features
+- Use `lib/screens/freemium_demo_screen.dart` for subscription testing
+- Use `lib/screens/subscription_management_screen.dart` for plan management
+- Test validation: Free (10 items) → Premium (unlimited) → Enterprise (API)
 
 ## 📚 File Organization Priority
 1. **Primary**: `lib/main.dart`, `lib/screens/enhanced_main_screen.dart`
 2. **Core**: `lib/core/theme/qrkey_theme.dart`, `lib/services/subscription_service.dart`
 3. **Integration**: `lib/core/config/supabase_config.dart`, `firebase_options.dart`
-4. **Legacy**: `lib/clean_qsr_main.dart` (read-only, integrated via import)
+4. **Complete System**: `lib/clean_qsr_main.dart` (15,000+ lines, self-contained QSR system)
+5. **Models**: `lib/shared/models/subscription_models.dart` (freemium system models)
 
-When modifying features, always ensure changes maintain the freemium model, blue theme consistency, and graceful fallbacks for cloud services.
+## 💡 Development Guidelines
+
+When modifying features:
+- Maintain freemium model with proper validation
+- Use saffron theme consistency (`QRKeyTheme.primarySaffron`)
+- Implement graceful fallbacks for cloud services
+- Follow localization patterns with `l10n(ref, 'key')`
+- Test subscription flows: Free → Premium → Enterprise
+- Preserve the monolithic `clean_qsr_main.dart` as integrated system
